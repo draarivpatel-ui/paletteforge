@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>PaletteForge</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>PaletteForge</h1>
+  <div class="top-actions">
+    <span class="hash-hint" id="hash-hint">state lives in the URL hash</span>
+    <button id="btn-theme" type="button">Dark room</button>
+  </div>
+</header>
+
+<main class="layout">
+  <section class="stage" aria-label="Poster preview">
+    <figure class="frame">
+      <canvas id="poster" width="1400" height="1800"></canvas>
+    </figure>
+    <div class="placard" id="placard">
+      <span class="placard-title">Untitled study</span>
+      <span class="placard-meta" id="placard-meta"></span>
+    </div>
+  </section>
+
+  <section class="controls" aria-label="Studio controls">
+    <div class="block actions">
+      <button id="btn-surprise" type="button" class="primary">Surprise seed &amp; harmony</button>
+      <button id="btn-extract" type="button">Extract from sample art</button>
+      <div class="action-pair">
+        <button id="btn-svg" type="button">Export SVG</button>
+        <button id="btn-png" type="button">Export PNG</button>
+      </div>
+      <button id="btn-tests" type="button">Run self-tests</button>
+    </div>
+
+    <div class="block">
+      <h2>Seed</h2>
+      <div class="seed-row">
+        <input id="seed-input" type="text" maxlength="64" spellcheck="false" autocomplete="off" placeholder="any words become the artwork">
+        <button id="btn-seed" type="button">Apply</button>
+      </div>
+      <div class="seed-row">
+        <input id="base-hex" type="text" maxlength="9" spellcheck="false" autocomplete="off" placeholder="#c8451f">
+        <button id="btn-base" type="button">Base color</button>
+      </div>
+    </div>
+
+    <div class="block">
+      <h2>Composition</h2>
+      <div class="btn-grid cols2" id="mode-group" role="group" aria-label="Composition mode">
+        <button type="button" id="mode-flow" data-mode="flow">Flow ribbons</button>
+        <button type="button" id="mode-wallpaper" data-mode="wallpaper">Wallpaper symmetry</button>
+        <button type="button" id="mode-bauhaus" data-mode="bauhaus">Bauhaus grid</button>
+        <button type="button" id="mode-moire" data-mode="moire">Moire superformula</button>
+      </div>
+      <div class="btn-grid cols3 subtle" id="symmetry-group" role="group" aria-label="Wallpaper symmetry group">
+        <button type="button" id="sym-p4m" data-symmetry="p4m">p4m</button>
+        <button type="button" id="sym-p6m" data-symmetry="p6m">p6m</button>
+        <button type="button" id="sym-p2" data-symmetry="p2">p2</button>
+      </div>
+    </div>
+
+    <div class="block">
+      <h2>Harmony</h2>
+      <div class="btn-grid cols3" id="harmony-group" role="group" aria-label="Harmony mode">
+        <button type="button" id="harm-complementary" data-harmony="complementary">Complementary</button>
+        <button type="button" id="harm-split-complementary" data-harmony="split-complementary">Split comp</button>
+        <button type="button" id="harm-triadic" data-harmony="triadic">Triadic</button>
+        <button type="button" id="harm-analogous" data-harmony="analogous">Analogous</button>
+        <button type="button" id="harm-tetradic" data-harmony="tetradic">Tetradic</button>
+        <button type="button" id="harm-monochromatic" data-harmony="monochromatic">Mono tonal</button>
+      </div>
+      <p class="note" id="palette-source-note"></p>
+    </div>
+
+    <div class="block">
+      <h2>Vision</h2>
+      <div class="btn-grid cols2" id="cvd-group" role="group" aria-label="Color vision simulation">
+        <button type="button" id="cvd-none" data-cvd="none">Full color</button>
+        <button type="button" id="cvd-protanopia" data-cvd="protanopia">Protanopia</button>
+        <button type="button" id="cvd-deuteranopia" data-cvd="deuteranopia">Deuteranopia</button>
+        <button type="button" id="cvd-tritanopia" data-cvd="tritanopia">Tritanopia</button>
+      </div>
+    </div>
+
+    <div class="block">
+      <div class="drop" id="drop-zone">Drop an image to extract its palette</div>
+    </div>
+  </section>
+
+  <aside class="palette-col" aria-label="Palette measurements">
+    <div class="block">
+      <h2>Palette</h2>
+      <div id="swatches" class="swatches"></div>
+    </div>
+    <div class="block">
+      <h2>Contrast matrix</h2>
+      <div id="matrix" class="matrix"></div>
+      <p class="note" id="matrix-note"></p>
+    </div>
+    <div class="block" id="test-block" hidden>
+      <h2>Self-tests</h2>
+      <p class="note" id="test-summary"></p>
+      <ul id="test-list" class="test-list"></ul>
+    </div>
+  </aside>
+</main>
+
+<script type="module" src="app.mjs"></script>
+</body>
+</html>

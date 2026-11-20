@@ -1,0 +1,10 @@
+{
+  "name": "paletteforge",
+  "version": "1.0.0",
+  "description": "Zero-dependency OKLCH color science and seeded generative poster studio.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/"
+  }
+}
