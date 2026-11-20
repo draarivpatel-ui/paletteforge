@@ -53,15 +53,16 @@ tools/verify.mjs        headless browser verification script
 
 ## Tests
 
-The suite currently reports 315 passing checks with zero failures:
+The suite currently reports 336 passing checks with zero failures:
 
 ```
 npm test
 ```
 
 which is `node --test tests/`. The suite covers round-trip accuracy, gamut-bisection invariants,
-WCAG golden values, CVD monotonicity, median-cut edges, PRNG goldens, byte-identical SVG output,
-SVG validity and escaping, URL hash tampering, and static hygiene on the shipped files.
+WCAG golden values, CVD monotonicity, median-cut edges, NaN hardening, PRNG goldens,
+byte-identical SVG output, SVG validity and escaping, URL hash tampering, and static hygiene on
+the shipped files.
 
 ## Run
 

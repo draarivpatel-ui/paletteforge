@@ -7,7 +7,16 @@
 export const TAU = Math.PI * 2;
 
 export function clamp01(x) {
+  // NaN fails both comparisons, so it must be handled first; NaN maps to 0
+  // rather than propagating through the gamut pipeline into '#NaNNaNNaN'.
+  if (Number.isNaN(x)) return 0;
   return x < 0 ? 0 : x > 1 ? 1 : x;
+}
+
+// Non-finite numbers fall back to a safe scalar. Used at every pipeline entry
+// that accepts raw numbers (gamut mapping, harmony generation).
+function finiteOr(v, fallback) {
+  return Number.isFinite(v) ? v : fallback;
 }
 
 // ---------------------------------------------------------------------------
@@ -89,10 +98,14 @@ export function isInSrgbGamut({ r, g, b }, eps = 1e-6) {
 }
 
 export function gamutMapOklch(L, C, H, iterations = 32) {
+  // Non-finite inputs resolve to safe values instead of propagating NaN into
+  // every downstream hex, matrix cell, and poster op. clamp01 now absorbs NaN
+  // (to 0) and clamps +-Infinity naturally; hue and chroma fall back to 0.
   const Lc = clamp01(L);
-  const evalC = (c) => oklchToSrgb(Lc, c, H);
-  let mappedC = C;
-  if (C > 0 && !isInSrgbGamut(evalC(C))) {
+  const Hs = finiteOr(H, 0);
+  const evalC = (c) => oklchToSrgb(Lc, c, Hs);
+  let mappedC = finiteOr(C, 0);
+  if (mappedC > 0 && !isInSrgbGamut(evalC(mappedC))) {
     let lo = 0;
     let hi = C;
     for (let i = 0; i < iterations; i++) {
@@ -103,7 +116,7 @@ export function gamutMapOklch(L, C, H, iterations = 32) {
     mappedC = lo;
   }
   const s = evalC(mappedC);
-  return { r: clamp01(s.r), g: clamp01(s.g), b: clamp01(s.b), L: Lc, C: mappedC, H };
+  return { r: clamp01(s.r), g: clamp01(s.g), b: clamp01(s.b), L: Lc, C: mappedC, H: Hs };
 }
 
 // ---------------------------------------------------------------------------
@@ -265,7 +278,14 @@ export function wrapHue(h) {
 //   chromaScale      multiplier on base chroma (default 1)
 export function generateHarmony(base, mode, opts = {}) {
   if (!HARMONY_MODES.includes(mode)) mode = 'triadic';
-  const count = Math.max(1, Math.min(12, Math.floor(opts.count ?? 5)));
+  // A malformed base object degrades to a neutral anchor instead of producing
+  // NaN swatches with '#NaNNaNNaN' hexes.
+  base = {
+    L: finiteOr(base?.L, 0.6),
+    C: finiteOr(base?.C, 0.1),
+    H: finiteOr(base?.H, 0),
+  };
+  const count = Math.max(1, Math.min(12, Math.floor(finiteOr(opts.count, 5))));
   const spread = Math.max(0, Math.min(0.45, opts.lightnessSpread ?? 0.22));
   const curve = opts.lightnessCurve === 'ease' ? 'ease' : 'linear';
   const envelope = opts.chromaEnvelope === 'flat' ? 'flat' : 'taper';
@@ -310,8 +330,14 @@ export function generateHarmony(base, mode, opts = {}) {
 
 export function extractPaletteFromPixels(rgba, width, height, k = 6) {
   const total = Math.floor((rgba?.length ?? 0) / 4);
-  const px = Math.min(total, Math.floor(width) * Math.floor(height));
-  const wanted = Math.floor(k);
+  const w = Math.floor(width);
+  const h = Math.floor(height);
+  // NaN or negative dimensions would otherwise compute NaN pixel counts that
+  // slip past numeric guards; treat any non-finite dimension as empty input.
+  const px = Number.isFinite(width) && Number.isFinite(height) && w > 0 && h > 0
+    ? Math.min(total, w * h)
+    : 0;
+  const wanted = Math.floor(finiteOr(k, 0));
   if (px <= 0 || wanted <= 0) return [];
 
   const buckets = new Map(); // packed rgb -> {r,g,b,w}

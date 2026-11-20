@@ -5,7 +5,7 @@
 // that serialize to byte-identical SVG and render to canvas or 1400x1800 PNG.
 // Pure ES module, zero dependencies.
 
-import { relativeLuminance, hexToRgb } from './color-science.mjs';
+import { relativeLuminance, hexToRgb, HARMONY_MODES } from './color-science.mjs';
 
 export const POSTER_W = 1400;
 export const POSTER_H = 1800;
@@ -584,7 +584,10 @@ export function decodeState(hash, defaults = {}) {
   const mode = p.get('mode');
   if (mode !== null && MODES.includes(mode)) out.mode = mode;
   const harmony = p.get('harmony');
-  if (harmony !== null && typeof harmony === 'string' && /^[a-z-]{1,32}$/.test(harmony)) out.harmony = harmony;
+  // Membership check, not shape check: a well-formed but unknown harmony name
+  // must fall back to the default rather than reach the UI and crash the
+  // label lookup on hashchange.
+  if (harmony !== null && HARMONY_MODES.includes(harmony)) out.harmony = harmony;
   const symmetry = p.get('symmetry');
   if (symmetry !== null && SYMMETRIES.includes(symmetry)) out.symmetry = symmetry;
   const cvd = p.get('cvd');

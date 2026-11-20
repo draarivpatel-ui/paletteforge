@@ -265,11 +265,24 @@ $('#btn-extract').addEventListener('click', () => {
 });
 
 const dz = $('#drop-zone');
+const fileInput = $('#file-input');
 ['dragenter', 'dragover'].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('over'); }));
 ['dragleave', 'drop'].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove('over'); }));
 dz.addEventListener('drop', (e) => {
   const file = e.dataTransfer?.files?.[0];
-  if (!file || !file.type.startsWith('image/')) return;
+  if (file) extractFile(file);
+});
+// Keyboard and pointer fallback: click (or Enter/Space on the focused button)
+// opens a real file picker, so palette extraction is not mouse-drag only.
+dz.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', () => {
+  const file = fileInput.files && fileInput.files[0];
+  if (file) extractFile(file);
+  fileInput.value = '';
+});
+
+function extractFile(file) {
+  if (!file.type || !file.type.startsWith('image/')) return;
   const reader = new FileReader();
   reader.onload = () => {
     const img = new Image();
@@ -290,7 +303,7 @@ dz.addEventListener('drop', (e) => {
     img.src = reader.result;
   };
   reader.readAsDataURL(file);
-});
+}
 
 $('#btn-svg').addEventListener('click', () => {
   const svg = exportPosterSvg(state.seed, state.mode, activeHexes(), {

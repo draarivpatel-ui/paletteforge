@@ -98,6 +98,8 @@ export function runSelfTests() {
   check('URL hash codec round-trips', rt && rt.seed === st.seed && rt.mode === st.mode && rt.cvd === st.cvd && rt.theme === st.theme, encodeState(st));
   const bad = decodeState('#mode=hax&cvd=zzz&seed=' + encodeURIComponent('<script>'), { mode: 'flow', cvd: 'none' });
   check('tampered hash falls back safely', bad && bad.mode === 'flow' && bad.cvd === 'none' && bad.seed === '<script>', 'sanitized');
+  const badHarm = decodeState('#harmony=zzz', { harmony: 'triadic' });
+  check('unknown harmony in hash falls back', badHarm && badHarm.harmony === 'triadic', badHarm ? badHarm.harmony : 'null');
   const hx = hexToRgb('#4f8ac2');
   check('hex round-trip', rgbToHex(hx.r, hx.g, hx.b) === '#4f8ac2', '#4f8ac2');
 
