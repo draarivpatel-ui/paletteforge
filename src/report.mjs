@@ -267,12 +267,29 @@ export function exportFigmaTokens(paletteHexes, meta = {}) {
   return JSON.stringify({ [TOKEN_ROOT]: { color } }, null, 2) + '\n';
 }
 
+// The WCAG level a matrix cell earns as a class, in the same four-level
+// vocabulary the swatch badges use, always judged on the unrounded ratio.
+const CELL_BADGE_CLASS = { AAA: 'aaa', AA: 'aa', 'AA Large': 'aal', Fail: 'fail' };
+
+// The next WCAG line each badge fails, named in the cell tooltip so a pair
+// never reads as passing a level its raw ratio does not reach.
+const CELL_NEXT_LINE = { AAA: '', AA: 'AAA 7', 'AA Large': 'AA 4.5', Fail: 'AA Large 3' };
+
 // The app's N x N contrast matrix as accessible markup. Every row and column
 // header names its swatch (index + hex) in visually hidden text with
 // scope="row" or scope="col", so assistive technology associates each ratio
 // cell with its exact ink and ground pair. The colored chip keeps the
-// gallery look; the hidden label carries the meaning.
+// gallery look; the hidden label carries the meaning. Each ratio cell is
+// classified strictly by its unrounded ratio: the class, the badge verdict
+// in the tooltip, and the visually hidden label all come from the raw
+// value, and a leading < marks a ratio whose one-decimal display would
+// round up onto a WCAG line it fails, so 4.499888 can never read as the
+// AA pass it falls short of. Single-argument calls take hex strings.
 export function matrixTableHtml(rgbs, hexes) {
+  if (hexes === undefined) {
+    hexes = sanitizePalette(rgbs);
+    rgbs = hexes.map((h) => hexToRgb(h));
+  }
   const m = contrastMatrix(rgbs);
   const label = (i) => `swatch ${i + 1} ${hexes[i]}`;
   let html = '<table><thead><tr><td><span class="sr-only">ink on ground</span></td>';
@@ -291,8 +308,16 @@ export function matrixTableHtml(rgbs, hexes) {
         html += `<td><span class="cell" style="background:${hexes[j]}"><span class="diag">1.0</span></span></td>`;
         return;
       }
-      const text = r >= 10 ? r.toFixed(0) : r.toFixed(1);
-      html += `<td><span class="cell" style="background:${hexes[j]};color:${hexes[i]}" title="${hexes[i]} on ${hexes[j]}">${text}</span></td>`;
+      const badge = contrastBadge(r);
+      const shown = r >= 10 ? r.toFixed(0) : r.toFixed(1);
+      const line = [7, 4.5, 3].find((min) => r < min && Number(shown) >= min);
+      const text = line === undefined ? shown : `&lt;${line}`;
+      const next = CELL_NEXT_LINE[badge];
+      const verdict = next ? `${badge}, fails ${next}` : badge;
+      const tip = `${hexes[i]} on ${hexes[j]} · ${(Math.floor(r * 1000) / 1000).toFixed(3)}:1 (${verdict})`;
+      html +=
+        `<td><span class="cell ${CELL_BADGE_CLASS[badge]}" style="background:${hexes[j]};color:${hexes[i]}" ` +
+        `title="${tip}">${text}<span class="sr-only">, ${verdict}</span></span></td>`;
     });
     html += '</tr>';
   });

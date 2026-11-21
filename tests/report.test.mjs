@@ -413,21 +413,78 @@ test('contrast matrix markup gives every header a name and scope', async (t) => 
   await t.test('ratio cells still carry their ink-on-ground pair title', () => {
     for (let i = 0; i < PAL.length; i++) {
       for (let j = 0; j < PAL.length; j++) {
-        if (i !== j) assert.ok(html.includes(`title="${PAL[i]} on ${PAL[j]}"`), `${i} on ${j}`);
+        if (i !== j) assert.ok(html.includes(`title="${PAL[i]} on ${PAL[j]} · `), `${i} on ${j}`);
       }
     }
   });
   await t.test('cells display the real pairwise ratio for their pair', () => {
+    const clsOf = { AAA: 'aaa', AA: 'aa', 'AA Large': 'aal', Fail: 'fail' };
+    const nextOf = { AAA: '', AA: 'AAA 7', 'AA Large': 'AA 4.5', Fail: 'AA Large 3' };
     for (let i = 1; i < PAL.length; i++) {
       const want = contrastRatio(rgbs[0], rgbs[i]);
-      const text = want >= 10 ? want.toFixed(0) : want.toFixed(1);
+      const badge = contrastBadge(want);
+      const shown = want >= 10 ? want.toFixed(0) : want.toFixed(1);
+      const line = [7, 4.5, 3].find((min) => want < min && Number(shown) >= min);
+      const text = line === undefined ? shown : `&lt;${line}`;
+      const verdict = nextOf[badge] ? `${badge}, fails ${nextOf[badge]}` : badge;
       assert.ok(
         html.includes(
-          `<td><span class="cell" style="background:${PAL[i]};color:${PAL[0]}" ` +
-            `title="${PAL[0]} on ${PAL[i]}">${text}</span></td>`
+          `<td><span class="cell ${clsOf[badge]}" style="background:${PAL[i]};color:${PAL[0]}" ` +
+            `title="${PAL[0]} on ${PAL[i]} · ${(Math.floor(want * 1000) / 1000).toFixed(3)}:1 (${verdict})"` +
+            `>${text}<span class="sr-only">, ${verdict}</span></span></td>`
         ),
-        `cell swatch 1 on swatch ${i + 1} shows ${text}`
+        `cell swatch 1 on swatch ${i + 1} shows ${text} as ${verdict}`
       );
     }
+  });
+});
+
+test('matrix cells mark under-the-line ratios instead of rounding up a pass', async (t) => {
+  // WCAG 2.2 forbids rounding a ratio up to reach a threshold. Each pair
+  // below measures just under a WCAG line yet rounds onto it at one
+  // decimal; the cell text, class, tooltip, and spoken label must all
+  // judge the unrounded raw ratio instead.
+  const count = (s, sub) => s.split(sub).length - 1;
+  const CASES = [
+    { ink: '#006ffb', ground: '#ffffff', raw: 4.499888087779618, shown: '&lt;4.5', bare: '>4.5<', cls: 'aal', floored: '4.499', verdict: 'AA Large, fails AA 4.5' },
+    { ink: '#959595', ground: '#ffffff', raw: 2.9953461357088114, shown: '&lt;3', bare: '>3.0<', cls: 'fail', floored: '2.995', verdict: 'Fail, fails AA Large 3' },
+    { ink: '#006820', ground: '#ffffff', raw: 6.997707710555527, shown: '&lt;7', bare: '>7.0<', cls: 'aa', floored: '6.997', verdict: 'AA, fails AAA 7' },
+  ];
+  for (const c of CASES) {
+    await t.test(`${c.ink} on ${c.ground} at ${c.raw} can never read as a pass`, () => {
+      const html = matrixTableHtml([c.ink, c.ground]);
+      assert.ok(!html.includes(c.bare), `bare ${c.bare.slice(1, -1)} implies a pass the raw ratio fails`);
+      assert.equal(count(html, `>${c.shown}<`), 2, 'both directed cells carry the under-line mark');
+      assert.equal(count(html, `class="cell ${c.cls}"`), 2, 'badge class judged from the raw ratio');
+      assert.equal(count(html, c.verdict), 4, 'verdict in tooltip and spoken label on both cells');
+      assert.ok(
+        html.includes(`title="${c.ink} on ${c.ground} · ${c.floored}:1 (${c.verdict})"`),
+        `tooltip for ${c.ink} on ${c.ground}`
+      );
+      assert.ok(
+        html.includes(`title="${c.ground} on ${c.ink} · ${c.floored}:1 (${c.verdict})"`),
+        `tooltip for ${c.ground} on ${c.ink}`
+      );
+    });
+  }
+  await t.test('the exact reviewed pair: #006ffb on #ffffff fails AA', () => {
+    // The release-review repro: 4.499888 displays as 4.5 but must not.
+    const html = matrixTableHtml(['#006ffb', '#ffffff']);
+    assert.ok(!html.includes('>4.5<'));
+    assert.ok(html.includes('title="#006ffb on #ffffff · 4.499:1 (AA Large, fails AA 4.5)"'));
+    assert.ok(html.includes('>&lt;4.5<span class="sr-only">, AA Large, fails AA 4.5</span>'));
+  });
+  await t.test('a pair truly over a line still shows its rounded value plainly', () => {
+    // #767676 on white measures 4.5422, a real AA pass that keeps "4.5".
+    const html = matrixTableHtml(['#767676', '#ffffff']);
+    assert.equal(count(html, '>4.5<span class="sr-only">, AA, fails AAA 7</span>'), 2);
+    assert.equal(count(html, 'class="cell aa"'), 2);
+    assert.ok(!html.includes('&lt;'));
+  });
+  await t.test('a genuine AAA pass reports no failed line', () => {
+    const html = matrixTableHtml(['#000000', '#ffffff']);
+    assert.ok(html.includes('title="#000000 on #ffffff · 21.000:1 (AAA)"'));
+    assert.ok(!html.includes('fails'));
+    assert.equal(count(html, 'class="cell aaa"'), 2);
   });
 });

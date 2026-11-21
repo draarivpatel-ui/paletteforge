@@ -12,7 +12,8 @@ build step, no packages, no external network requests of any kind.
 - Generates six geometric harmonies (complementary, split complementary, triadic, analogous,
   tetradic, monochromatic tonal) with adjustable lightness curve and chroma envelope.
 - Computes WCAG 2.1 relative luminance and contrast ratios across the whole palette as an N x N
-  matrix, with AA, AAA, and large-text badges.
+  matrix, with AA, AAA, and large-text badges judged on the unrounded ratio; a cell whose display
+  would round up onto a line it fails is marked with a leading `<` instead.
 - Exports a WCAG proof report that recomputes every pairwise AA, AAA, large-text, and non-text
   ratio under full vision and under all three color-vision simulations, and ships the same
   palette as CSS custom properties, a Tailwind color config, and Figma-ready design tokens in
@@ -64,7 +65,7 @@ tools/verify.mjs        headless browser verification script
 
 ## Tests
 
-The suite currently reports 516 passing checks with zero failures:
+The suite currently reports 523 passing checks with zero failures:
 
 ```
 npm test

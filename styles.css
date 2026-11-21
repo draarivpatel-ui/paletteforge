@@ -452,6 +452,14 @@ input[type="color"]:focus-visible { outline: 2px solid var(--accent); outline-of
   padding: 1px 5px;
 }
 
+/* The stripe at the foot of each ratio cell marks the WCAG line the raw
+   pair earns: pass green for AA and AAA, accent for large text only, red
+   under every line. The number, tooltip, and hidden label carry the same
+   verdict. */
+.matrix td .cell.aaa, .matrix td .cell.aa { box-shadow: inset 0 -3px 0 var(--pass); }
+.matrix td .cell.aal { box-shadow: inset 0 -3px 0 var(--accent); }
+.matrix td .cell.fail { box-shadow: inset 0 -3px 0 var(--fail); }
+
 /* ---------- self-test drawer ---------- */
 
 .test-list {

@@ -282,7 +282,8 @@ function renderMatrix(rgbs, hexes) {
   const wrap = $('#matrix');
   wrap.innerHTML = matrixTableHtml(rgbs, hexes);
   $('#matrix-note').textContent =
-    `Rows are ink, columns are ground. AAA at 7, AA at 4.5, large text at 3.` +
+    `Rows are ink, columns are ground. AAA at 7, AA at 4.5, large text at 3. ` +
+    `A leading < means the pair rounds up to that line but sits under it, so it fails.` +
     `${state.cvd !== 'none' ? ' Ratios computed on the simulated palette.' : ''}`;
 }
 
