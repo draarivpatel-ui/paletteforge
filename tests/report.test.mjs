@@ -10,12 +10,14 @@ import {
   exportCssTokens,
   exportTailwindConfig,
   exportFigmaTokens,
+  matrixTableHtml,
   TOKEN_ROOT,
   VISIONS,
 } from '../src/report.mjs';
 import {
   simulateCvdHex,
   hexToRgb,
+  rgbToHex,
   contrastRatio,
   contrastBadge,
   formatOklch,
@@ -134,15 +136,16 @@ test('proof report pair math is auditable', async (t) => {
       assert.notEqual(p.ink, p.ground);
     }
   });
-  await t.test('wcag flags are consistent with the shipped ratio', () => {
+  await t.test('wcag flags and badges judge the unrounded raw ratio', () => {
     for (const v of r.visions) {
       for (const p of v.pairs) {
-        assert.equal(p.wcag.aa, p.ratio >= 4.5);
-        assert.equal(p.wcag.aaa, p.ratio >= 7);
-        assert.equal(p.wcag.aaLarge, p.ratio >= 3);
-        assert.equal(p.wcag.aaaLarge, p.ratio >= 4.5);
-        assert.equal(p.wcag.nonText, p.ratio >= 3);
-        assert.equal(p.badge, contrastBadge(p.ratio));
+        assert.equal(p.wcag.aa, p.rawRatio >= 4.5);
+        assert.equal(p.wcag.aaa, p.rawRatio >= 7);
+        assert.equal(p.wcag.aaLarge, p.rawRatio >= 3);
+        assert.equal(p.wcag.aaaLarge, p.rawRatio >= 4.5);
+        assert.equal(p.wcag.nonText, p.rawRatio >= 3);
+        assert.equal(p.badge, contrastBadge(p.rawRatio));
+        assert.equal(p.ratio, Number(p.rawRatio.toFixed(3)));
       }
     }
   });
@@ -176,6 +179,40 @@ test('proof report pair math is auditable', async (t) => {
     const rep = buildProofReport(['#000000', '#ffffff']);
     assert.equal(rep.verdict.aaaEverywhere, true);
     assert.equal(rep.verdict.minRatio, 21);
+  });
+});
+
+test('a 4.499888 pair fails AA instead of rounding up to pass', async (t) => {
+  // WCAG 2.2 forbids rounding a contrast ratio up to reach a threshold:
+  // #006ffb on #ffffff measures 4.499888087779618, displays as 4.5, and must
+  // fail AA. Reproduces the exact pair from the release review.
+  const rep = buildProofReport(['#006ffb', '#ffffff']);
+  const v0 = rep.visions[0];
+  await t.test('the pair exposes both raw and display ratios', () => {
+    const p = v0.pairs.find((x) => x.inkHex === '#006ffb' && x.groundHex === '#ffffff');
+    assert.ok(p);
+    assert.ok(Math.abs(p.rawRatio - 4.499888087779618) < 1e-9, `raw ${p.rawRatio}`);
+    assert.equal(p.ratio, 4.5);
+  });
+  await t.test('it fails AA in both ink directions and earns only large-text marks', () => {
+    for (const p of v0.pairs) {
+      assert.equal(p.wcag.aa, false, `${p.inkHex} on ${p.groundHex}`);
+      assert.equal(p.wcag.aaa, false);
+      assert.equal(p.wcag.aaaLarge, false);
+      assert.equal(p.wcag.aaLarge, true);
+      assert.equal(p.wcag.nonText, true);
+      assert.equal(p.badge, 'AA Large');
+    }
+  });
+  await t.test('summary and verdict refuse the AA claim', () => {
+    assert.equal(v0.summary.counts.aa, 0);
+    assert.equal(v0.summary.counts.aaLarge, v0.pairs.length);
+    assert.equal(rep.verdict.aaEverywhere, false);
+  });
+  await t.test('a pair truly above the threshold still earns AA', () => {
+    // #006ffb on black measures about 4.67, a real AA pass for contrast.
+    const ok = buildProofReport(['#006ffb', '#000000']);
+    assert.equal(ok.visions[0].pairs.every((p) => p.wcag.aa && p.badge === 'AA'), true);
   });
 });
 
@@ -287,20 +324,36 @@ test('tailwind token export evaluates to a real config', async (t) => {
 test('figma token export', async (t) => {
   const raw = exportFigmaTokens(PAL, META);
   const doc = JSON.parse(raw);
-  await t.test('parses as W3C design tokens', () => {
+  await t.test('parses as W3C DTCG design tokens', () => {
     assert.ok(doc[TOKEN_ROOT]);
     const color = doc[TOKEN_ROOT].color;
     assert.ok(color);
     for (const key of Object.keys(color)) {
       assert.equal(color[key].$type, 'color');
-      assert.match(color[key].$value, /^#[0-9a-f]{6}$/);
+      const v = color[key].$value;
+      assert.equal(v.colorSpace, 'srgb');
+      assert.ok(Array.isArray(v.components) && v.components.length === 3);
+      assert.ok(v.components.every((c) => Number.isFinite(c) && c >= 0 && c <= 1));
+      assert.match(v.hex, /^#[0-9a-f]{6}$/);
     }
   });
-  await t.test('swatch tokens carry palette hexes and oklch descriptions', () => {
+  await t.test('every color value is a DTCG 2025.10 color object', () => {
+    // The exact reviewed case: exportFigmaTokens(['#abcdef']) must emit the
+    // color object Figma's native importer reads, for swatch and ink alike.
+    const single = JSON.parse(exportFigmaTokens(['#abcdef']));
+    const c = hexToRgb('#abcdef');
+    for (const key of ['1', 'on-1']) {
+      const tok = single[TOKEN_ROOT].color[key];
+      assert.equal(tok.$type, 'color');
+      assert.deepEqual(tok.$value, { colorSpace: 'srgb', components: [c.r, c.g, c.b], hex: '#abcdef' });
+    }
+  });
+  await t.test('components round-trip to the swatch hex', () => {
     const color = doc[TOKEN_ROOT].color;
     for (const [i, h] of PAL.entries()) {
       const tok = color[String(i + 1)];
-      assert.equal(tok.$value, h);
+      assert.deepEqual(tok.$value.components, [hexToRgb(h).r, hexToRgb(h).g, hexToRgb(h).b]);
+      assert.equal(rgbToHex(...tok.$value.components), h);
       const ok = hexToOklch(h);
       assert.equal(tok.$description, formatOklch(ok.L, ok.C, ok.H));
     }
@@ -309,11 +362,72 @@ test('figma token export', async (t) => {
     const color = doc[TOKEN_ROOT].color;
     for (const [i, h] of PAL.entries()) {
       const tok = color[`on-${i + 1}`];
-      assert.equal(tok.$value, bestInk(h, PAL));
+      const want = bestInk(h, PAL);
+      assert.equal(tok.$value.hex, want);
+      assert.equal(rgbToHex(...tok.$value.components), want);
       assert.ok(tok.$description.includes(`${TOKEN_ROOT}-${i + 1}`));
     }
   });
   await t.test('emits exactly two tokens per swatch', () => {
     assert.equal(Object.keys(doc[TOKEN_ROOT].color).length, PAL.length * 2);
+  });
+});
+
+test('contrast matrix markup gives every header a name and scope', async (t) => {
+  const rgbs = PAL.map((h) => hexToRgb(h));
+  const html = matrixTableHtml(rgbs, PAL);
+  await t.test('column headers name their swatch with scope="col"', () => {
+    for (const [i, h] of PAL.entries()) {
+      assert.ok(
+        html.includes(
+          `<th scope="col"><span class="cellchip" style="background:${h}"></span>` +
+            `<span class="sr-only">swatch ${i + 1} ${h}</span></th>`
+        ),
+        `col ${i + 1}`
+      );
+    }
+  });
+  await t.test('row headers name their swatch with scope="row"', () => {
+    for (const [i, h] of PAL.entries()) {
+      assert.ok(
+        html.includes(
+          `<th scope="row"><span class="cellchip" style="background:${h}"></span>` +
+            `<span class="sr-only">swatch ${i + 1} ${h}</span></th>`
+        ),
+        `row ${i + 1}`
+      );
+    }
+  });
+  await t.test('emits exactly n column and n row headers', () => {
+    assert.equal((html.match(/<th scope="col">/g) || []).length, PAL.length);
+    assert.equal((html.match(/<th scope="row">/g) || []).length, PAL.length);
+  });
+  await t.test('every header carries readable text, not only a colored chip', () => {
+    const ths = html.match(/<th[^>]*>.*?<\/th>/g) || [];
+    assert.ok(ths.length >= PAL.length * 2);
+    for (const th of ths) {
+      const text = th.replace(/<[^>]+>/g, '').trim();
+      assert.match(text, /swatch \d+ #[0-9a-f]{6}/, th);
+    }
+  });
+  await t.test('ratio cells still carry their ink-on-ground pair title', () => {
+    for (let i = 0; i < PAL.length; i++) {
+      for (let j = 0; j < PAL.length; j++) {
+        if (i !== j) assert.ok(html.includes(`title="${PAL[i]} on ${PAL[j]}"`), `${i} on ${j}`);
+      }
+    }
+  });
+  await t.test('cells display the real pairwise ratio for their pair', () => {
+    for (let i = 1; i < PAL.length; i++) {
+      const want = contrastRatio(rgbs[0], rgbs[i]);
+      const text = want >= 10 ? want.toFixed(0) : want.toFixed(1);
+      assert.ok(
+        html.includes(
+          `<td><span class="cell" style="background:${PAL[i]};color:${PAL[0]}" ` +
+            `title="${PAL[0]} on ${PAL[i]}">${text}</span></td>`
+        ),
+        `cell swatch 1 on swatch ${i + 1} shows ${text}`
+      );
+    }
   });
 });

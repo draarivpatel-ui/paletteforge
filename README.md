@@ -15,9 +15,10 @@ build step, no packages, no external network requests of any kind.
   matrix, with AA, AAA, and large-text badges.
 - Exports a WCAG proof report that recomputes every pairwise AA, AAA, large-text, and non-text
   ratio under full vision and under all three color-vision simulations, and ships the same
-  palette as CSS custom properties, a Tailwind color config, and Figma-importable design tokens.
-- Simulates protanopia, deuteranopia, and tritanopia with Vienot-Brettel linear-RGB matrices,
-  applied to the swatches, the matrix, and the poster itself.
+  palette as CSS custom properties, a Tailwind color config, and Figma-ready design tokens in
+  the W3C DTCG color-object format (sRGB color space plus normalized channel components).
+- Simulates protanopia, deuteranopia, and tritanopia with the Machado, Oliveira and Fernandes
+  (2009) matrices at severity 1.0, applied to the swatches, the matrix, and the poster itself.
 - Takes the base color as hex or as a typed OKLCH triple (gamut-mapped at constant hue and
   lightness), flags malformed input inline, and announces every recovery politely.
 - Navigates entirely by keyboard: single-select groups work as radio groups with a roving Tab
@@ -38,7 +39,9 @@ lands inside `[0, 1]`, which takes at most 32 iterations and preserves the perce
 
 WCAG contrast is `(L1 + 0.05) / (L2 + 0.05)` over relative luminance
 `Y = 0.2126 R + 0.7152 G + 0.0722 B` computed on linearized channels. Black on white is exactly
-21:1; identical colors are 1:1.
+21:1; identical colors are 1:1. Every pass or fail flag and badge in the proof report compares
+the unrounded ratio against its threshold, because WCAG forbids rounding up to reach it: a pair
+at 4.499888 fails AA even though it displays as 4.5.
 
 Posters are deterministic: the seed string is hashed with FNV-1a and expanded by a mulberry32
 PRNG, so the same seed always produces byte-identical SVG. The hash `seed`, `mode`, `harmony`,
@@ -61,7 +64,7 @@ tools/verify.mjs        headless browser verification script
 
 ## Tests
 
-The suite currently reports 499 passing checks with zero failures:
+The suite currently reports 516 passing checks with zero failures:
 
 ```
 npm test

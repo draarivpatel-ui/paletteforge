@@ -26,6 +26,7 @@ import {
   exportCssTokens,
   exportTailwindConfig,
   exportFigmaTokens,
+  matrixTableHtml,
 } from './src/report.mjs';
 
 import {
@@ -278,25 +279,8 @@ function renderHueWheel(hexes) {
 }
 
 function renderMatrix(rgbs, hexes) {
-  const m = contrastMatrix(rgbs);
   const wrap = $('#matrix');
-  let html = '<table><thead><tr><th></th>';
-  hexes.forEach((h) => { html += `<th><span class="cellchip" style="background:${h}"></span></th>`; });
-  html += '</tr></thead><tbody>';
-  m.forEach((row, i) => {
-    html += `<tr><th><span class="cellchip" style="background:${hexes[i]}"></span></th>`;
-    row.forEach((r, j) => {
-      if (i === j) {
-        html += `<td><span class="cell" style="background:${hexes[j]}"><span class="diag">1.0</span></span></td>`;
-        return;
-      }
-      const label = r >= 10 ? r.toFixed(0) : r.toFixed(1);
-      html += `<td><span class="cell" style="background:${hexes[j]};color:${hexes[i]}" title="${hexes[i]} on ${hexes[j]}">${label}</span></td>`;
-    });
-    html += '</tr>';
-  });
-  html += '</tbody></table>';
-  wrap.innerHTML = html;
+  wrap.innerHTML = matrixTableHtml(rgbs, hexes);
   $('#matrix-note').textContent =
     `Rows are ink, columns are ground. AAA at 7, AA at 4.5, large text at 3.` +
     `${state.cvd !== 'none' ? ' Ratios computed on the simulated palette.' : ''}`;

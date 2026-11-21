@@ -503,7 +503,12 @@ async function checkExports(label, { viaBlob = false } = {}) {
       const j = JSON.parse(fg.text);
       const color = j.paletteforge && j.paletteforge.color;
       fgOk = !!color && Object.keys(color).length >= 10 &&
-        Object.values(color).every((x) => x.$type === 'color' && /^#[0-9a-f]{6}$/.test(x.$value));
+        Object.values(color).every((x) =>
+          x.$type === 'color' &&
+          x.$value && x.$value.colorSpace === 'srgb' &&
+          Array.isArray(x.$value.components) && x.$value.components.length === 3 &&
+          x.$value.components.every((c) => Number.isFinite(c) && c >= 0 && c <= 1) &&
+          /^#[0-9a-f]{6}$/.test(x.$value.hex));
     } catch { /* stays false */ }
   }
   note(`${label}: Figma token export parses as design tokens`, fgOk, fg ? `${fg.size}b` : 'no blob');

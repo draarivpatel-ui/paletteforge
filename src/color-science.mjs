@@ -1,7 +1,8 @@
 // PaletteForge color science engine.
 // Exact Bjorn Ottosson Oklab/OKLCH conversion, chroma-bisection sRGB gamut
-// mapping, geometric harmony generation, WCAG 2.1 contrast, Vienot-Brettel
-// color vision deficiency simulation, and deterministic median-cut extraction.
+// mapping, geometric harmony generation, WCAG 2.1 contrast, the Machado,
+// Oliveira and Fernandes (2009) color vision deficiency simulation, and
+// deterministic median-cut extraction.
 // Pure ES module, zero dependencies, runs in Node and in the browser.
 
 export const TAU = Math.PI * 2;
@@ -224,8 +225,9 @@ export function contrastMatrix(colors) {
 }
 
 // ---------------------------------------------------------------------------
-// Color vision deficiency simulation. Vienot, Brettel and Mollon (1999)
-// linear-RGB dichromat projection matrices, applied in linear sRGB space.
+// Color vision deficiency simulation. Machado, Oliveira and Fernandes (2009)
+// dichromat simulation matrices at full severity (1.0), applied in linear
+// sRGB space.
 // ---------------------------------------------------------------------------
 
 export const CVD_TYPES = ['protanopia', 'deuteranopia', 'tritanopia'];

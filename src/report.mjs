@@ -1,10 +1,10 @@
 // PaletteForge contrast proof report and design-token exporters.
 // The proof report recomputes every pairwise WCAG 2.1 contrast ratio in the
-// palette under full vision and under each of the three Vienot-Brettel
-// dichromat simulations, so an accessibility claim travels with verifiable
-// math instead of a screenshot. The token exporters emit the same palette as
-// CSS custom properties, a Tailwind color config, and W3C-format design
-// tokens in the shape Figma Variables and Tokens Studio import.
+// palette under full vision and under each of the three Machado, Oliveira and
+// Fernandes (2009) dichromat simulations, so an accessibility claim travels
+// with verifiable math instead of a screenshot. The token exporters emit the
+// same palette as CSS custom properties, a Tailwind color config, and W3C
+// DTCG design tokens in the shape Figma Variables and Tokens Studio import.
 // Pure ES module, zero dependencies, and deterministic by construction: no
 // clocks, no randomness, so the same palette always produces identical bytes.
 
@@ -15,6 +15,7 @@ import {
   relativeLuminance,
   contrastRatio,
   contrastBadge,
+  contrastMatrix,
   simulateCvdHex,
   formatOklch,
   CVD_TYPES,
@@ -78,18 +79,22 @@ export function bestInk(hex, paletteHexes) {
 }
 
 function pairEntry(inkHex, groundHex, inkIndex, groundIndex) {
-  const ratio = Number(contrastRatio(hexToRgb(inkHex), hexToRgb(groundHex)).toFixed(3));
-  // Levels are judged on the rounded ratio that ships in the report, so the
-  // artifact is self-consistent for anyone auditing it by eye.
+  const rawRatio = contrastRatio(hexToRgb(inkHex), hexToRgb(groundHex));
+  // WCAG pass/fail is judged on the unrounded ratio: a pair at 4.499888 fails
+  // AA even though it displays as 4.5, because the spec forbids rounding up
+  // to reach a threshold. `ratio` ships the rounded value for display; every
+  // flag and badge compares `rawRatio`.
+  const ratio = Number(rawRatio.toFixed(3));
   const wcag = {};
-  for (const [key, min] of WCAG_LEVELS) wcag[key] = ratio >= min;
+  for (const [key, min] of WCAG_LEVELS) wcag[key] = rawRatio >= min;
   return {
     ink: `${TOKEN_ROOT}-${inkIndex + 1}`,
     ground: `${TOKEN_ROOT}-${groundIndex + 1}`,
     inkHex,
     groundHex,
     ratio,
-    badge: contrastBadge(ratio),
+    rawRatio,
+    badge: contrastBadge(rawRatio),
     wcag,
   };
 }
@@ -112,8 +117,8 @@ function visionProof(vision, hexes) {
   let weakest = null;
   let strongest = null;
   for (const p of pairs) {
-    if (!weakest || p.ratio < weakest.ratio) weakest = p;
-    if (!strongest || p.ratio > strongest.ratio) strongest = p;
+    if (!weakest || p.rawRatio < weakest.rawRatio) weakest = p;
+    if (!strongest || p.rawRatio > strongest.rawRatio) strongest = p;
   }
   return {
     vision,
@@ -144,7 +149,7 @@ export function buildProofReport(paletteHexes, meta = {}) {
   let weakest = null;
   for (const v of visions) {
     for (const p of v.pairs) {
-      if (!weakest || p.ratio < weakest.ratio) {
+      if (!weakest || p.rawRatio < weakest.rawRatio) {
         weakest = p;
         weakestVision = v.vision;
       }
@@ -233,24 +238,63 @@ export function exportTailwindConfig(paletteHexes, meta = {}) {
   );
 }
 
-// W3C design-token format ($type/$value), the shape Figma Variables and
-// Tokens Studio import. Each swatch ships with its oklch() reading and its
-// best-contrast ink partner as sibling tokens.
+// W3C DTCG design tokens ($type/$value), the shape Figma Variables and
+// Tokens Studio import. Every $type "color" token carries a DTCG 2025.10
+// color object: the sRGB color space, the normalized channel components, and
+// the hex fallback, so Figma's native importer reads the file directly. Each
+// swatch ships with its oklch() reading and its best-contrast ink partner as
+// sibling tokens.
 export function exportFigmaTokens(paletteHexes, meta = {}) {
   const palette = sanitizePalette(paletteHexes);
+  const dtcgColor = (hex) => {
+    const c = hexToRgb(hex);
+    return { colorSpace: 'srgb', components: [c.r, c.g, c.b], hex };
+  };
   const color = {};
   palette.forEach((h, i) => {
     const ok = hexToOklch(h);
     color[String(i + 1)] = {
       $type: 'color',
-      $value: h,
+      $value: dtcgColor(h),
       $description: formatOklch(ok.L, ok.C, ok.H),
     };
     color[`on-${i + 1}`] = {
       $type: 'color',
-      $value: bestInk(h, palette),
+      $value: dtcgColor(bestInk(h, palette)),
       $description: `strongest WCAG contrast on ${TOKEN_ROOT}-${i + 1}`,
     };
   });
   return JSON.stringify({ [TOKEN_ROOT]: { color } }, null, 2) + '\n';
+}
+
+// The app's N x N contrast matrix as accessible markup. Every row and column
+// header names its swatch (index + hex) in visually hidden text with
+// scope="row" or scope="col", so assistive technology associates each ratio
+// cell with its exact ink and ground pair. The colored chip keeps the
+// gallery look; the hidden label carries the meaning.
+export function matrixTableHtml(rgbs, hexes) {
+  const m = contrastMatrix(rgbs);
+  const label = (i) => `swatch ${i + 1} ${hexes[i]}`;
+  let html = '<table><thead><tr><td><span class="sr-only">ink on ground</span></td>';
+  hexes.forEach((h, i) => {
+    html +=
+      `<th scope="col"><span class="cellchip" style="background:${h}"></span>` +
+      `<span class="sr-only">${label(i)}</span></th>`;
+  });
+  html += '</tr></thead><tbody>';
+  m.forEach((row, i) => {
+    html +=
+      `<tr><th scope="row"><span class="cellchip" style="background:${hexes[i]}"></span>` +
+      `<span class="sr-only">${label(i)}</span></th>`;
+    row.forEach((r, j) => {
+      if (i === j) {
+        html += `<td><span class="cell" style="background:${hexes[j]}"><span class="diag">1.0</span></span></td>`;
+        return;
+      }
+      const text = r >= 10 ? r.toFixed(0) : r.toFixed(1);
+      html += `<td><span class="cell" style="background:${hexes[j]};color:${hexes[i]}" title="${hexes[i]} on ${hexes[j]}">${text}</span></td>`;
+    });
+    html += '</tr>';
+  });
+  return html + '</tbody></table>';
 }

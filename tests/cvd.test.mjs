@@ -1,5 +1,5 @@
-// Color vision deficiency simulation: Vienot-Brettel invariants, bounds, and
-// monotonic channel responses.
+// Color vision deficiency simulation: Machado, Oliveira and Fernandes (2009)
+// golden matrices, invariants, bounds, and monotonic channel responses.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -7,7 +7,38 @@ import {
   simulateCvdHex,
   isInSrgbGamut,
   CVD_TYPES,
+  CVD_MATRICES,
 } from '../src/color-science.mjs';
+
+// The published severity-1.0 dichromat simulation matrices (Machado, Oliveira
+// and Fernandes, 2009), e.g. protanopia's first row 0.152286, 1.052583,
+// -0.204868. Guards the model attribution: these exact coefficients are the
+// Machado set, not Vienot-Brettel-Mollon.
+const MACHADO_2009_SEVERITY_1 = {
+  protanopia: [
+    0.152286, 1.052583, -0.204868,
+    0.114503, 0.786281, 0.099216,
+    -0.003882, -0.048116, 1.051998,
+  ],
+  deuteranopia: [
+    0.367322, 0.860646, -0.227968,
+    0.280085, 0.672501, 0.047413,
+    -0.01182, 0.04294, 0.968881,
+  ],
+  tritanopia: [
+    1.255528, -0.076749, -0.178779,
+    -0.078411, 0.930809, 0.147602,
+    0.004733, 0.691367, 0.3039,
+  ],
+};
+
+test('CVD matrices are the Machado et al. 2009 severity-1.0 set', async (t) => {
+  for (const type of CVD_TYPES) {
+    await t.test(`${type} coefficients match the published matrix`, () => {
+      assert.deepEqual(CVD_MATRICES[type], MACHADO_2009_SEVERITY_1[type]);
+    });
+  }
+});
 
 test('CVD output stays in gamut for extreme inputs', async (t) => {
   const extremes = [
