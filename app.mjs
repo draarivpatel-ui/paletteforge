@@ -52,6 +52,39 @@ const state = { ...DEFAULTS, customPalette: null };
 const poster = $('#poster');
 const pctx = poster.getContext('2d');
 
+// The poster develops like a print coming up in the developer: ops are
+// painter-ordered and purely additive, so painting them in timed batches
+// lands on the exact same final frame as one synchronous draw. This is the
+// 30 second demo moment; reduced-motion users get the finished frame at once.
+let posterAnim = 0;
+const prefersReducedMotion = () =>
+  typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function paintPoster(ops) {
+  if (posterAnim) {
+    cancelAnimationFrame(posterAnim);
+    posterAnim = 0;
+  }
+  pctx.save();
+  pctx.setTransform(1, 0, 0, 1, 0, 0);
+  pctx.clearRect(0, 0, poster.width, poster.height);
+  pctx.restore();
+  if (prefersReducedMotion() || ops.length < 10) {
+    drawOps(pctx, ops, 1);
+    return;
+  }
+  const FRAMES = 20;
+  const per = Math.max(1, Math.ceil(ops.length / FRAMES));
+  let i = 0;
+  const step = () => {
+    const end = Math.min(ops.length, i + per);
+    drawOps(pctx, ops.slice(i, end), 1);
+    i = end;
+    posterAnim = i < ops.length ? requestAnimationFrame(step) : 0;
+  };
+  step();
+}
+
 const SURPRISE_WORDS = [
   'amber', 'verdant', 'cobalt', 'crimson', 'umber', 'ivory', 'slate', 'copper',
   'meadow', 'harbor', 'quarry', 'orchard', 'atlas', 'beacon', 'lantern', 'meridian',
@@ -96,7 +129,8 @@ function contrastPassCount(rgbs) {
 function render() {
   const hexes = activeHexes();
   const rgbs = hexes.map((h) => hexToRgb(h));
-  const firstOklch = hexToOklch(naturalHexes()[0]);
+  const natural = naturalHexes();
+  const firstOklch = hexToOklch(natural[0]);
   const oklchLine = `OKLCH ${firstOklch.L.toFixed(2)} ${firstOklch.C.toFixed(2)} ${Math.round(firstOklch.H)}`;
   const passes = contrastPassCount(rgbs);
 
@@ -108,21 +142,35 @@ function render() {
     oklchLine,
     background: '#f6f1e7',
   });
-  drawOps(pctx, ops, 1);
+  paintPoster(ops);
 
   renderSwatches(hexes);
+  renderHueWheel(natural);
   renderMatrix(rgbs, hexes);
   renderPlacard();
   syncButtons();
   syncHash();
 }
 
+// The placard reads like a museum wall label: the seed becomes the artwork's
+// title, the meta line carries provenance, the medium line describes the piece.
+function artworkTitle() {
+  if (state.customPalette) return 'Extracted study';
+  const words = state.seed.trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return 'Untitled study';
+  const titled = words.map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  return titled.length > 34 ? titled.slice(0, 33).trimEnd() + '…' : titled;
+}
+
 function renderPlacard() {
+  $('#placard-title').textContent = artworkTitle();
   $('#placard-meta').textContent =
     `seed ${state.seed}  /  ${MODE_LABELS[state.mode].toLowerCase()}` +
     `${state.mode === 'wallpaper' ? ' ' + state.symmetry : ''}  /  ` +
     `${state.customPalette ? 'extracted palette' : HARMONY_LABELS[state.harmony].toLowerCase()}` +
     `${state.cvd !== 'none' ? '  /  ' + state.cvd + ' view' : ''}`;
+  $('#placard-medium').textContent =
+    `oklch generative study · ${MODE_LABELS[state.mode].toLowerCase()} · 1400 × 1800 · svg + png`;
 }
 
 function renderSwatches(hexes) {
@@ -149,6 +197,62 @@ function renderSwatches(hexes) {
   $('#palette-source-note').textContent = state.customPalette
     ? 'Palette extracted from image data with a deterministic median cut.'
     : `Palette generated geometrically in OKLCH from ${state.base}.`;
+}
+
+// Hue wheel: each swatch's OKLCH hue angle plotted on a 360 degree ring, so
+// the harmony reads at a glance (analogous clusters, complementary opposes).
+// Positions use the natural palette even under CVD simulation: the wheel
+// explains why the colors belong together, not how they are seen.
+const WHEEL_SHORT = {
+  complementary: 'complementary',
+  'split-complementary': 'split comp',
+  triadic: 'triadic',
+  analogous: 'analogous',
+  tetradic: 'tetradic',
+  monochromatic: 'mono tonal',
+};
+
+function renderHueWheel(hexes) {
+  const wrap = $('#hue-wheel');
+  const W = 216;
+  const H = 200;
+  const cx = 108;
+  const cy = 88;
+  const r = 62;
+  const at = (hue, rad) => {
+    const a = (hue * Math.PI) / 180;
+    return [cx + rad * Math.sin(a), cy - rad * Math.cos(a)];
+  };
+  const f = (n) => (Math.round(n * 10) / 10).toString();
+  let spokes = '';
+  let dots = '';
+  hexes.forEach((hex) => {
+    const ok = hexToOklch(hex);
+    const [sx, sy] = at(ok.H, 12);
+    const [ex, ey] = at(ok.H, r - 10);
+    const [dx, dy] = at(ok.H, r);
+    spokes += `<line class="spoke" x1="${f(sx)}" y1="${f(sy)}" x2="${f(ex)}" y2="${f(ey)}"/>`;
+    dots +=
+      `<circle class="hue-dot" cx="${f(dx)}" cy="${f(dy)}" r="8" fill="${hex}">` +
+      `<title>hue ${Math.round(ok.H)} deg</title></circle>`;
+  });
+  let cardinals = '';
+  for (const [label, dx, dy] of [['0', cx, cy - r - 14], ['90', cx + r + 14, cy + 4], ['180', cx, cy + r + 18], ['270', cx - r - 14, cy + 4]]) {
+    cardinals += `<text class="wheel-tick" x="${f(dx)}" y="${f(dy)}" text-anchor="middle">${label}</text>`;
+  }
+  const centerLabel = state.customPalette ? 'extracted' : (WHEEL_SHORT[state.harmony] || 'palette');
+  wrap.innerHTML =
+    `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Hue wheel of the palette">` +
+    spokes +
+    `<circle class="ring" cx="${cx}" cy="${cy}" r="${r}"/>` +
+    dots +
+    cardinals +
+    `<text class="wheel-center" x="${cx}" y="${cy + 4}" text-anchor="middle">${centerLabel}</text>` +
+    `</svg>`;
+  $('#hue-wheel-note').textContent =
+    `dot angle is the OKLCH hue of each swatch` +
+    `${state.cvd !== 'none' ? ' (natural palette)' : ''}` +
+    `${state.customPalette ? '' : ', ' + HARMONY_LABELS[state.harmony].toLowerCase() + ' spacing'}`;
 }
 
 function renderMatrix(rgbs, hexes) {
@@ -184,6 +288,7 @@ function syncButtons() {
   document.querySelectorAll('#cvd-group button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.cvd === state.cvd)));
   $('#seed-input').value = state.seed;
   $('#base-hex').value = state.base;
+  $('#base-color').value = state.base;
   document.documentElement.dataset.theme = state.theme;
   $('#btn-theme').textContent = state.theme === 'dark' ? 'Daylight' : 'Dark room';
 }
@@ -218,6 +323,12 @@ function applySeedInput() {
 
 $('#btn-base').addEventListener('click', applyBase);
 $('#base-hex').addEventListener('keydown', (e) => { if (e.key === 'Enter') applyBase(); });
+// The color well commits on change (picker close) so a live drag does not
+// re-render the poster on every intermediate value.
+$('#base-color').addEventListener('change', () => {
+  const v = $('#base-color').value;
+  if (v) { state.base = v.toLowerCase(); state.customPalette = null; render(); }
+});
 function applyBase() {
   const v = $('#base-hex').value.trim();
   const c = hexToRgb(v.startsWith('#') ? v : '#' + v);
@@ -264,13 +375,46 @@ $('#btn-extract').addEventListener('click', () => {
   }
 });
 
+$('#btn-copy').addEventListener('click', async () => {
+  const btn = $('#btn-copy');
+  const url = location.href;
+  const flash = () => {
+    btn.textContent = 'Link copied';
+    setTimeout(() => { btn.textContent = 'Copy share link'; }, 1400);
+  };
+  try {
+    await navigator.clipboard.writeText(url);
+    flash();
+    return;
+  } catch { /* clipboard API unavailable or denied; try the legacy path */ }
+  const ta = document.createElement('textarea');
+  ta.value = url;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    if (document.execCommand('copy')) flash();
+  } catch { /* leave the label unchanged */ }
+  ta.remove();
+});
+
 const dz = $('#drop-zone');
 const fileInput = $('#file-input');
-['dragenter', 'dragover'].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('over'); }));
-['dragleave', 'drop'].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove('over'); }));
-dz.addEventListener('drop', (e) => {
+// Drops are accepted anywhere on the page, not only on the zone: the whole
+// window prevents the browser's default file navigation and routes the file
+// to extraction, while the zone lights up as the drop affordance.
+const hasFiles = (e) => !!e.dataTransfer?.types?.includes('Files');
+window.addEventListener('dragenter', (e) => { if (hasFiles(e)) { e.preventDefault(); dz.classList.add('over'); } });
+window.addEventListener('dragover', (e) => { if (hasFiles(e)) { e.preventDefault(); dz.classList.add('over'); } });
+window.addEventListener('dragleave', (e) => { if (!e.relatedTarget) dz.classList.remove('over'); });
+window.addEventListener('drop', (e) => {
   const file = e.dataTransfer?.files?.[0];
-  if (file) extractFile(file);
+  if (!file) return;
+  e.preventDefault();
+  dz.classList.remove('over');
+  extractFile(file);
 });
 // Keyboard and pointer fallback: click (or Enter/Space on the focused button)
 // opens a real file picker, so palette extraction is not mouse-drag only.

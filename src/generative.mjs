@@ -5,7 +5,7 @@
 // that serialize to byte-identical SVG and render to canvas or 1400x1800 PNG.
 // Pure ES module, zero dependencies.
 
-import { relativeLuminance, hexToRgb, HARMONY_MODES } from './color-science.mjs';
+import { relativeLuminance, hexToRgb, rgbToHex, HARMONY_MODES } from './color-science.mjs';
 
 export const POSTER_W = 1400;
 export const POSTER_H = 1800;
@@ -141,10 +141,29 @@ function composeFlow(rng, seed, pal) {
   const ops = [];
   const noiseSeed = fnv1a('flow:' + seed);
   const scale = 0.0014 + rng() * 0.0013;
-  const ribbons = 110 + Math.floor(rng() * 80);
+  // A seeded focal point gathers part of the ribbon starts, so the field
+  // reads as one composed image with dense braided regions and quiet edges
+  // instead of confetti scattered edge to edge.
+  const fx = POSTER_W * (0.3 + rng() * 0.4);
+  const fy = ART_H * (0.28 + rng() * 0.44);
+  const focalShare = 0.3 + rng() * 0.4;
+  const ribbons = 130 + Math.floor(rng() * 90);
+  // Marks keep a real picture-plane margin so no stroke dies on the edge.
+  const M = 44;
   for (let i = 0; i < ribbons; i++) {
-    let x = rng() * POSTER_W;
-    let y = rng() * ART_H;
+    let x;
+    let y;
+    if (rng() < focalShare) {
+      const a = rng() * Math.PI * 2;
+      const d = Math.pow(rng(), 0.55) * POSTER_W * 0.24;
+      x = fx + Math.cos(a) * d * 1.5;
+      y = fy + Math.sin(a) * d * 0.8;
+    } else {
+      x = rng() * POSTER_W;
+      y = rng() * ART_H;
+    }
+    x = Math.min(POSTER_W - M, Math.max(M, x));
+    y = Math.min(ART_H - M, Math.max(M, y));
     const step = 7 + rng() * 5;
     const steps = 45 + Math.floor(rng() * 90);
     const pts = [[x, y]];
@@ -152,23 +171,87 @@ function composeFlow(rng, seed, pal) {
       const a = fbm2(x * scale, y * scale, noiseSeed) * Math.PI * 4;
       x += Math.cos(a) * step;
       y += Math.sin(a) * step;
-      if (x < 20 || x > POSTER_W - 20 || y < 20 || y > ART_H - 20) break;
+      if (x < M || x > POSTER_W - M || y < M || y > ART_H - M) break;
       pts.push([x, y]);
     }
-    if (pts.length < 4) continue;
+    // Cull stubs: a path that dies in a handful of steps reads as a generator
+    // artifact at the margins, not a composed mark.
+    if (pts.length < 12) continue;
+    // Weight classes give the field a calligraphic hierarchy: hairlines,
+    // working strokes, and a few heavy trunks.
+    const cls = rng();
+    const w = cls < 0.2 ? 1.6 + rng() * 1.4 : cls < 0.74 ? 2.5 + rng() * 4.5 : 8 + rng() * 9;
+    const alpha = 0.42 + rng() * 0.48;
+    const col = pal[i % pal.length];
+    // Head taper on heavier strokes: a thin lead-in painted under the body
+    // leaves the entry end narrowing like a lifted brush.
+    if (w >= 4 && pts.length > 24 && rng() < 0.6) {
+      const head = pts.slice(0, Math.ceil(pts.length * 0.3));
+      ops.push(path(head, { stroke: col, w: Math.max(0.8, w * 0.5), alpha: alpha * 0.85 }));
+    }
+    ops.push(path(pts, { stroke: col, w, alpha }));
+    // Tapered termination: the last stretch repaints thinner over the body,
+    // so stroke ends thin out like a lifted brush instead of ending blunt.
+    if (w >= 3 && pts.length > 20 && rng() < 0.75) {
+      const tail = pts.slice(Math.floor(pts.length * 0.62));
+      if (tail.length > 4) {
+        ops.push(path(tail, { stroke: col, w: Math.max(0.8, w * 0.42), alpha: alpha * 0.8, cap: 'round' }));
+      }
+    }
+    // About a third of ribbons carry a jittered filament sibling: the pair
+    // reads as one braided strand and builds density where they overlap.
+    if (rng() < 0.38 && pts.length > 8) {
+      const jpts = pts.map((p, k) => [
+        p[0] + (hash2(k, i, noiseSeed) - 0.5) * 4,
+        p[1] + (hash2(i, k, noiseSeed + 77) - 0.5) * 4,
+      ]);
+      ops.push(path(jpts, { stroke: col, w: Math.max(0.8, w * 0.45), alpha: alpha * 0.45 }));
+    }
+  }
+  // Trunk strokes: a few heavy, shorter ribbons anchored at the focal point
+  // give the braid a core mass the thin field can organize around.
+  for (let i = 0; i < 4; i++) {
+    let x = fx + (rng() - 0.5) * POSTER_W * 0.16;
+    let y = fy + (rng() - 0.5) * ART_H * 0.16;
+    x = Math.min(POSTER_W - M, Math.max(M, x));
+    y = Math.min(ART_H - M, Math.max(M, y));
+    const step = 9 + rng() * 6;
+    const steps = 26 + Math.floor(rng() * 30);
+    const pts = [[x, y]];
+    for (let s = 0; s < steps; s++) {
+      const a = fbm2(x * scale, y * scale, noiseSeed + 31) * Math.PI * 4;
+      x += Math.cos(a) * step;
+      y += Math.sin(a) * step;
+      if (x < M || x > POSTER_W - M || y < M || y > ART_H - M) break;
+      pts.push([x, y]);
+    }
+    if (pts.length > 8) {
+      ops.push(path(pts, { stroke: pal[(i * 2 + 1) % pal.length], w: 11 + rng() * 9, alpha: 0.5 + rng() * 0.3 }));
+    }
+  }
+  // A few heavier accents on top: open rings rather than solid dots, so the
+  // marks stay inside the drawing's linear vocabulary.
+  for (let i = 0; i < 6; i++) {
+    const cx = M + 40 + rng() * (POSTER_W - 2 * (M + 40));
+    const cy = M + 40 + rng() * (ART_H - 2 * (M + 40));
     ops.push(
-      path(pts, {
-        stroke: pal[i % pal.length],
-        w: 2 + rng() * 9,
-        alpha: 0.5 + rng() * 0.4,
+      circle([cx, cy], 10 + rng() * 30, {
+        stroke: pal[(i * 2 + 1) % pal.length],
+        w: 2 + rng() * 6,
+        alpha: 0.55 + rng() * 0.3,
       })
     );
   }
-  // A few heavier accents on top.
-  for (let i = 0; i < 6; i++) {
-    const cx = rng() * POSTER_W;
-    const cy = rng() * ART_H;
-    ops.push(circle([cx, cy], 8 + rng() * 26, { fill: pal[(i * 2 + 1) % pal.length], alpha: 0.85 }));
+  // Wide low-alpha washes around the focal point give the paper tooth and
+  // atmosphere the linear marks alone cannot.
+  for (let i = 0; i < 3; i++) {
+    ops.push(
+      circle(
+        [fx + (rng() - 0.5) * POSTER_W * 0.34, fy + (rng() - 0.5) * ART_H * 0.3],
+        130 + rng() * 170,
+        { fill: pal[(i * 3 + 2) % pal.length], alpha: 0.04 + rng() * 0.04 }
+      )
+    );
   }
   return ops;
 }
@@ -306,6 +389,24 @@ function composeBauhaus(rng, seed, pal) {
     }
   };
   split({ x: 0, y: 0, w: POSTER_W, h: ART_H }, 0);
+
+  // A degenerate rng run can stop the split almost immediately and leave a
+  // poster with one giant leaf; guarantee a minimum field of cells.
+  while (leaves.length < 18) {
+    leaves.sort((a, b) => b.w * b.h - a.w * a.h);
+    const big = leaves.shift();
+    if (big.w * big.h < 52000) {
+      leaves.push(big);
+      break;
+    }
+    if (big.w >= big.h) {
+      const cut = big.w / 2;
+      leaves.push({ x: big.x, y: big.y, w: cut, h: big.h }, { x: big.x + cut, y: big.y, w: big.w - cut, h: big.h });
+    } else {
+      const cut = big.h / 2;
+      leaves.push({ x: big.x, y: big.y, w: big.w, h: cut }, { x: big.x, y: big.y + cut, w: big.w, h: big.h - cut });
+    }
+  }
 
   // Largest leaves receive the highest-luminance palette entries.
   const ordered = leaves.slice().sort((a, b) => b.w * b.h - a.w * a.h);
@@ -544,12 +645,20 @@ export function drawOps(ctx, ops, scale = 1) {
 // URL hash state codec with strict validation
 // ---------------------------------------------------------------------------
 
-export const STATE_KEYS = ['seed', 'mode', 'harmony', 'symmetry', 'cvd', 'theme'];
+export const STATE_KEYS = ['seed', 'mode', 'harmony', 'symmetry', 'cvd', 'theme', 'base'];
 
 export function sanitizeSeed(s) {
   // Strip control characters and cap length; keep any printable text.
   const clean = String(s ?? '').replace(/[\x00-\x1f\x7f]/g, '').slice(0, 64);
   return clean;
+}
+
+// Normalizes any hex spelling hexToRgb accepts (#rgb, #rrggbb, #rrggbbaa)
+// down to canonical lowercase #rrggbb. Returns null for unparseable input so
+// hostile hash values fall back instead of reaching the UI.
+export function sanitizeBaseHex(v) {
+  const c = hexToRgb(v);
+  return c ? rgbToHex(c.r, c.g, c.b) : null;
 }
 
 export function encodeState(state) {
@@ -560,6 +669,8 @@ export function encodeState(state) {
   if (SYMMETRIES.includes(state.symmetry)) p.set('symmetry', state.symmetry);
   if (state.cvd && state.cvd !== 'none') p.set('cvd', state.cvd);
   if (state.theme === 'dark') p.set('theme', 'dark');
+  const base = sanitizeBaseHex(state.base);
+  if (base) p.set('base', base);
   return '#' + p.toString();
 }
 
@@ -594,6 +705,11 @@ export function decodeState(hash, defaults = {}) {
   if (cvd !== null) out.cvd = CVD_VALUES.includes(cvd) ? cvd : 'none';
   const theme = p.get('theme');
   if (theme !== null) out.theme = theme === 'dark' ? 'dark' : 'light';
+  const base = p.get('base');
+  if (base !== null) {
+    const b = sanitizeBaseHex(base);
+    if (b) out.base = b;
+  }
   return out;
 }
 

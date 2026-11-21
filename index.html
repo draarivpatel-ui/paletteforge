@@ -2,7 +2,7 @@
 <html lang="en" data-theme="light">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <title>PaletteForge</title>
 <link rel="stylesheet" href="styles.css">
@@ -11,7 +11,6 @@
 <header class="topbar">
   <h1>PaletteForge</h1>
   <div class="top-actions">
-    <span class="hash-hint" id="hash-hint">state lives in the URL hash</span>
     <button id="btn-theme" type="button">Dark room</button>
   </div>
 </header>
@@ -22,20 +21,23 @@
       <canvas id="poster" width="1400" height="1800"></canvas>
     </figure>
     <div class="placard" id="placard">
-      <span class="placard-title">Untitled study</span>
+      <span class="placard-title" id="placard-title">Untitled study</span>
       <span class="placard-meta" id="placard-meta"></span>
+      <span class="placard-medium" id="placard-medium"></span>
     </div>
   </section>
 
   <section class="controls" aria-label="Studio controls">
     <div class="block actions">
       <button id="btn-surprise" type="button" class="primary">Surprise seed &amp; harmony</button>
-      <button id="btn-extract" type="button">Extract from sample art</button>
+      <div class="action-pair">
+        <button id="btn-extract" type="button">Extract from sample art</button>
+        <button id="btn-copy" type="button">Copy share link</button>
+      </div>
       <div class="action-pair">
         <button id="btn-svg" type="button">Export SVG</button>
         <button id="btn-png" type="button">Export PNG</button>
       </div>
-      <button id="btn-tests" type="button">Run self-tests</button>
     </div>
 
     <div class="block">
@@ -44,7 +46,8 @@
         <input id="seed-input" type="text" maxlength="64" spellcheck="false" autocomplete="off" placeholder="any words become the artwork">
         <button id="btn-seed" type="button">Apply</button>
       </div>
-      <div class="seed-row">
+      <div class="seed-row base-row">
+        <input id="base-color" type="color" value="#c8451f" aria-label="Base color picker">
         <input id="base-hex" type="text" maxlength="9" spellcheck="false" autocomplete="off" placeholder="#c8451f">
         <button id="btn-base" type="button">Base color</button>
       </div>
@@ -59,9 +62,9 @@
         <button type="button" id="mode-moire" data-mode="moire">Moire superformula</button>
       </div>
       <div class="btn-grid cols3 subtle" id="symmetry-group" role="group" aria-label="Wallpaper symmetry group">
-        <button type="button" id="sym-p4m" data-symmetry="p4m">p4m</button>
-        <button type="button" id="sym-p6m" data-symmetry="p6m">p6m</button>
-        <button type="button" id="sym-p2" data-symmetry="p2">p2</button>
+        <button type="button" id="sym-p4m" data-symmetry="p4m" title="p4m wallpaper group">p4m</button>
+        <button type="button" id="sym-p6m" data-symmetry="p6m" title="p6m wallpaper group">p6m</button>
+        <button type="button" id="sym-p2" data-symmetry="p2" title="p2 wallpaper group">p2</button>
       </div>
     </div>
 
@@ -89,7 +92,7 @@
     </div>
 
     <div class="block">
-      <button type="button" class="drop" id="drop-zone">Drop an image to extract its palette, or click to browse</button>
+      <button type="button" class="drop" id="drop-zone"><span>Drop an image to extract its palette</span><span class="drop-sub">or click to browse</span></button>
       <input id="file-input" type="file" accept="image/*" hidden>
     </div>
   </section>
@@ -98,6 +101,11 @@
     <div class="block">
       <h2>Palette</h2>
       <div id="swatches" class="swatches"></div>
+    </div>
+    <div class="block">
+      <h2>Hue wheel</h2>
+      <div id="hue-wheel" class="hue-wheel"></div>
+      <p class="note" id="hue-wheel-note"></p>
     </div>
     <div class="block">
       <h2>Contrast matrix</h2>
@@ -111,6 +119,12 @@
     </div>
   </aside>
 </main>
+
+<footer class="foot">
+  <span class="hash-hint" id="hash-hint">state lives in the URL hash</span>
+  <span class="foot-colophon">oklch color science, seeded and deterministic</span>
+  <button id="btn-tests" type="button" class="quiet">Run self-tests</button>
+</footer>
 
 <script type="module" src="app.mjs"></script>
 </body>

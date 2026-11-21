@@ -35,8 +35,8 @@ WCAG contrast is `(L1 + 0.05) / (L2 + 0.05)` over relative luminance
 
 Posters are deterministic: the seed string is hashed with FNV-1a and expanded by a mulberry32
 PRNG, so the same seed always produces byte-identical SVG. The hash `seed`, `mode`, `harmony`,
-`symmetry`, `cvd`, and `theme` parameters are validated on load and anything malformed falls back
-to safe defaults.
+`symmetry`, `cvd`, `theme`, and `base` parameters are validated on load and anything malformed
+falls back to safe defaults.
 
 ## Layout
 
@@ -53,7 +53,7 @@ tools/verify.mjs        headless browser verification script
 
 ## Tests
 
-The suite currently reports 336 passing checks with zero failures:
+The suite currently reports 337 passing checks with zero failures:
 
 ```
 npm test

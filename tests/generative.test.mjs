@@ -156,3 +156,17 @@ test('wallpaper symmetry variants all render', async (t) => {
     });
   }
 });
+
+test('bauhaus never degenerates to a near-empty poster', async (t) => {
+  // Regression: a degenerate rng run could stop the recursive split after a
+  // handful of leaves, producing posters that were essentially blank.
+  const seeds = [
+    'quarry cobalt', 'slate orchard', 'first light', 'amber tundra',
+    'slate solstice', 'meridian delta', 'beacon verdant', 'harbor monsoon',
+    'crimson prairie', 'tundra prairie', 'prairie tundra', 'verdant orchard',
+  ];
+  for (const seed of seeds) {
+    const { ops } = composePoster(seed, 'bauhaus', PAL);
+    assert.ok(ops.length > 16, `${seed}: only ${ops.length} ops`);
+  }
+});

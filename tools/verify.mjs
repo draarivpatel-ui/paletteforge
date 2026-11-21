@@ -10,7 +10,7 @@
 //   node tools/verify.mjs
 
 import { spawn } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync, readdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,20 +28,21 @@ const note = (name, pass, detail = '') => {
   console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}${detail ? '  ' + detail : ''}`);
 };
 
-let server, chrome, ws;
+let server, server2, chrome, ws;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function shutdown(code) {
   try { ws?.close(); } catch {}
   try { server?.close(); } catch {}
+  try { server2?.close(); } catch {}
   if (chrome && chrome.exitCode === null) {
     const gone = new Promise((r) => chrome.once('exit', r));
     chrome.kill('SIGTERM');
     await Promise.race([gone, sleep(3000)]);
     if (chrome.exitCode === null) chrome.kill('SIGKILL');
   }
-  rmSync(profile, { recursive: true, force: true });
-  rmSync(downloadDir, { recursive: true, force: true });
+  rmSync(profile, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 });
+  rmSync(downloadDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 });
   const fails = results.filter((r) => !r.pass).length;
   console.log(`\n${results.length - fails}/${results.length} checks passed, ${fails} failed`);
   process.exit(code ?? (fails ? 1 : 0));
@@ -67,6 +68,24 @@ server = createServer(async (req, res) => {
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const appUrl = `http://127.0.0.1:${server.address().port}/`;
+// Second origin for the mobile pass: Chrome throttles repeated automatic
+// downloads per origin, so each viewport verifies exports on its own origin.
+server2 = createServer(async (req, res) => {
+  try {
+    const url = new URL(req.url, 'http://127.0.0.1');
+    let p = decodeURIComponent(url.pathname);
+    if (p === '/') p = '/index.html';
+    const file = join(ROOT, p);
+    if (!file.startsWith(ROOT)) { res.writeHead(403); res.end(); return; }
+    const body = await readFile(file);
+    res.writeHead(200, { 'content-type': MIME[p.slice(p.lastIndexOf('.'))] || 'application/octet-stream' });
+    res.end(body);
+  } catch {
+    res.writeHead(404); res.end('not found');
+  }
+});
+await new Promise((r) => server2.listen(0, '127.0.0.1', r));
+const appUrlMobile = `http://127.0.0.1:${server2.address().port}/`;
 
 chrome = spawn(CHROME, [
   '--headless=new', `--user-data-dir=${profile}`, '--remote-debugging-port=0',
@@ -134,22 +153,65 @@ const evaluate = async (expr) => {
 };
 
 const center = async (sel, scroll = false) => {
-  const box = await evaluate(`(() => { const el = document.querySelector(${JSON.stringify(sel)}); if (!el) return null; if (${scroll}) el.scrollIntoView({block: 'center', inline: 'nearest', behavior: 'instant'}); const r = el.getBoundingClientRect(); return {x: r.left + r.width/2, y: r.top + r.height/2, w: r.width, h: r.height}; })()`);
-  if (!box) throw new Error(`no element ${sel}`);
+  // scrollIntoView is compositor-driven on mobile emulation: the rect read in
+  // the same task can precede the actual scroll, leaving stale click coords.
+  // Scroll first, let it settle, then read the rect and confirm the element
+  // is really what elementFromPoint reports at its center.
+  //
+  // Coordinates: getBoundingClientRect/elementFromPoint are layout-viewport
+  // space, but Input.dispatchMouseEvent on mobile emulation expects
+  // visual-viewport space. visualViewport.offsetTop/Left is the gap between
+  // them (0 on desktop), so dispatch coords = layout coords minus the offset.
+  if (scroll) {
+    await evaluate(`document.querySelector(${JSON.stringify(sel)}).scrollIntoView({block: 'center', inline: 'nearest', behavior: 'instant'}); 'ok'`);
+    await sleep(200);
+  }
+  let box = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    box = await evaluate(`(() => { const el = document.querySelector(${JSON.stringify(sel)}); if (!el) return null; const r = el.getBoundingClientRect(); const lx = r.left + r.width/2, ly = r.top + r.height/2; const hit = document.elementFromPoint(lx, ly); const vx = lx - visualViewport.offsetLeft, vy = ly - visualViewport.offsetTop; return {x: vx, y: vy, lx, ly, w: r.width, h: r.height, ok: hit === el || el.contains(hit)}; })()`);
+    if (!box) throw new Error(`no element ${sel}`);
+    if (box.ok || !scroll) return box;
+    await evaluate(`document.querySelector(${JSON.stringify(sel)}).scrollIntoView({block: 'center', inline: 'nearest'}); 'ok'`);
+    await sleep(200);
+  }
   return box;
 };
 
 const realClick = async (sel) => {
-  const { x, y } = await center(sel, true);
-  for (const [type, btn, cnt] of [['mouseMoved', 'none', 0], ['mousePressed', 'left', 1], ['mouseReleased', 'left', 1]]) {
-    await send('Input.dispatchMouseEvent', { type, x, y, button: btn, clickCount: cnt }, S);
+  // Mobile emulation can keep scrolling after scrollIntoView returns, so a
+  // rect read a moment earlier may already be stale. Re-center and re-verify
+  // the hit target immediately before pressing; retry if the page moved.
+  let last = null;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const { x, y, lx, ly } = await center(sel, true);
+    last = { x, y, lx, ly };
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'none', clickCount: 0 }, S);
+    const ok = await evaluate(`(() => { const el = document.querySelector(${JSON.stringify(sel)}); if (!el) return false; const hit = document.elementFromPoint(${lx}, ${ly}); return hit === el || el.contains(hit); })()`);
+    if (!ok) { await sleep(300); continue; }
+    for (const [type, btn, cnt] of [['mousePressed', 'left', 1], ['mouseReleased', 'left', 1]]) {
+      await send('Input.dispatchMouseEvent', { type, x, y, button: btn, clickCount: cnt }, S);
+    }
+    await sleep(120);
+    return last;
   }
-  await sleep(120);
+  return last;
 };
 
-async function runViewport(w, h, label) {
+// After a real click, report what element sits at the click point. Used only
+// for failure diagnostics so a missed tap explains itself.
+const hitAt = async (x, y) =>
+  evaluate(`(() => { const el = document.elementFromPoint(${x}, ${y}); return el ? (el.id || el.tagName + '.' + String(el.className && el.className.baseVal !== undefined ? el.className.baseVal : el.className)) : 'none'; })()`);
+
+const realTab = async () => {
+  for (const type of ['rawKeyDown', 'keyUp']) {
+    await send('Input.dispatchKeyEvent', { type, key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9, nativeVirtualKeyCode: 9 }, S);
+  }
+  await sleep(80);
+};
+
+async function runViewport(w, h, label, url = appUrl) {
   await send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 1, mobile: w < 800 }, S);
-  await send('Page.navigate', { url: appUrl }, S);
+  await send('Page.navigate', { url }, S);
   await sleep(1600);
 
   const overflow = await evaluate('document.documentElement.scrollWidth > document.documentElement.clientWidth');
@@ -210,45 +272,154 @@ async function runViewport(w, h, label) {
   const theme = await evaluate(`document.documentElement.dataset.theme`);
   note(`${label}: theme toggle`, theme === 'dark', theme);
   await realClick('#btn-theme');
-}
 
-await runViewport(1440, 900, 'desktop');
-
-// SVG export by real click (desktop size still active).
-{
-  const before = readdirSync(downloadDir).length;
-  await realClick('#btn-svg');
-  await sleep(900);
-  const files = readdirSync(downloadDir);
-  const svgFile = files.find((f) => f.endsWith('.svg'));
-  let ok = false;
-  let detail = '';
-  if (svgFile) {
-    const body = readFileSync(join(downloadDir, svgFile), 'utf8');
-    ok = body.startsWith('<svg') && body.includes('viewBox="0 0 1400 1800"') && !/NaN|undefined/.test(body);
-    detail = `${svgFile} ${body.length}b`;
+  // Keyboard: Tab must move focus through real controls and show a visible
+  // focus ring (focus-visible outline, not the mouse-hover state).
+  await evaluate(`document.body.focus()`);
+  const seen = [];
+  let ringSeen = false;
+  for (let i = 0; i < 14; i++) {
+    await realTab();
+    const info = await evaluate(`(() => { const el = document.activeElement; if (!el || el === document.body) return null; const cs = getComputedStyle(el); return { id: (el.id || el.tagName) + ':' + (el.className && el.className.baseVal !== undefined ? el.className.baseVal : String(el.className || '')), outline: cs.outlineStyle + ' ' + cs.outlineWidth }; })()`);
+    if (info && !seen.includes(info.id)) {
+      seen.push(info.id);
+      if (info.outline.startsWith('solid') && !info.outline.startsWith('solid 0')) ringSeen = true;
+    }
   }
-  note('desktop: SVG export by click', ok && files.length > before, detail);
+  note(`${label}: Tab order reaches controls with visible focus ring`, seen.length >= 4 && ringSeen, `${seen.length} stops, ring=${ringSeen}`);
 }
 
-// PNG export by real click: must land a real PNG at 1400x1800.
-{
-  const before = readdirSync(downloadDir).length;
-  await realClick('#btn-png');
-  await sleep(1400);
-  const files = readdirSync(downloadDir);
-  const pngFile = files.find((f) => f.endsWith('.png'));
-  let ok = false;
-  let detail = '';
-  if (pngFile) {
-    const buf = readFileSync(join(downloadDir, pngFile));
-    ok = buf.length > 20000 && buf[0] === 0x89 && buf.readUInt32BE(16) === 1400 && buf.readUInt32BE(20) === 1800;
-    detail = `${pngFile} ${buf.length}b`;
+// Export artifacts: real clicks, then inspect the produced bytes. SVG must
+// parse as the poster markup; PNG must decode to a non-blank 1400x1800 image
+// (distinct sampled colors checked by drawing it back through a canvas).
+// Chrome caps automatic downloads at two per browser session, so the mobile
+// pass captures the export blob directly after a real click instead of
+// relying on a second file download.
+const dlSnapshot = () => new Map(readdirSync(downloadDir).map((f) => [f, statSync(join(downloadDir, f)).mtimeMs]));
+const dlFresh = (snap, ext) =>
+  readdirSync(downloadDir)
+    .filter((f) => f.endsWith(ext) && snap.get(f) !== statSync(join(downloadDir, f)).mtimeMs)
+    .map((f) => join(downloadDir, f));
+
+const captureBlobs = () =>
+  evaluate(`(() => {
+    window.__pfBlobs = [];
+    window.__pfClicks = [];
+    window.__pfLog = [];
+    for (const id of ['btn-svg', 'btn-png']) {
+      document.getElementById(id).addEventListener('click', () => window.__pfClicks.push(id), true);
+    }
+    for (const t of ['mousedown', 'mouseup', 'click']) {
+      document.addEventListener(t, (e) => window.__pfLog.push(t + '@' + (e.target.id || e.target.tagName)), true);
+    }
+    const orig = URL.createObjectURL.bind(URL);
+    URL.createObjectURL = (b) => { window.__pfBlobs.push(b); return orig(b); };
+    return true;
+  })()`);
+
+const readBlobInfo = (idx, kind) =>
+  evaluate(`(async () => {
+    const b = window.__pfBlobs[${idx}];
+    if (!b) return null;
+    if ('${kind}' === 'svg') {
+      const t = await b.text();
+      return { type: b.type, size: b.size, head: t.slice(0, 200), len: t.length, hasNaN: /NaN|undefined/.test(t), hasViewBox: t.includes('viewBox="0 0 1400 1800"'), shapes: /<(path|rect|circle|ellipse|polygon|line)/.test(t) };
+    }
+    const bmp = await createImageBitmap(b);
+    const c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height;
+    const x = c.getContext('2d'); x.drawImage(bmp, 0, 0);
+    const d = x.getImageData(0, 0, c.width, c.height).data;
+    const colors = new Set();
+    for (let i = 0; i < d.length; i += 16000) colors.add(d[i] + ',' + d[i+1] + ',' + d[i+2]);
+    return { type: b.type, size: b.size, w: bmp.width, h: bmp.height, colors: colors.size };
+  })()`);
+
+async function checkExports(label, { viaBlob = false } = {}) {
+  // The Tab-order pass can leave focus inside a text field; on mobile
+  // emulation that opens the virtual keyboard and shifts the visual
+  // viewport, so export taps would land offset. Drop focus first.
+  await evaluate(`if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur(); 'ok'`);
+  await sleep(400);
+  if (viaBlob) await captureBlobs();
+
+  // SVG export.
+  const snap1 = viaBlob ? null : dlSnapshot();
+  let pt = await realClick('#btn-svg');
+  await sleep(viaBlob ? 600 : 1500);
+  let svgOk = false;
+  let svgDetail = '';
+  if (viaBlob) {
+    const info = await readBlobInfo(0, 'svg');
+    const dbg = await evaluate(`JSON.stringify({clicks: window.__pfClicks || [], blobs: (window.__pfBlobs || []).length, log: (window.__pfLog || []).slice(-8), scrollY: scrollY, ae: document.activeElement ? document.activeElement.id || document.activeElement.tagName : 'none'})`);
+    svgOk = !!info && info.type === 'image/svg+xml' && info.size > 3000 && info.len > 3000 && info.head.startsWith('<svg') && info.hasViewBox && !info.hasNaN && info.shapes;
+    svgDetail = info ? `blob ${info.size}b ${info.len} chars` : `no blob captured (${dbg})`;
+  } else {
+    let svgs = dlFresh(snap1, '.svg');
+    if (!svgs.length) {
+      const hit = await hitAt(pt.lx ?? pt.x, pt.ly ?? pt.y);
+      pt = await realClick('#btn-svg');
+      await sleep(1500);
+      svgs = dlFresh(snap1, '.svg');
+      if (!svgs.length) svgDetail = `click at ${Math.round(pt.x)},${Math.round(pt.y)} hit ${hit}`;
+    }
+    if (svgs.length) {
+      const body = readFileSync(svgs[svgs.length - 1], 'utf8');
+      svgOk = body.startsWith('<svg') && body.includes('viewBox="0 0 1400 1800"') && !/NaN|undefined/.test(body) && body.length > 3000 && /<(path|rect|circle|ellipse|polygon|line)/.test(body);
+      svgDetail = `${svgs[svgs.length - 1].split('/').pop()} ${body.length}b`;
+    }
   }
-  note('desktop: PNG export by click', ok && files.length > before, detail);
+  note(`${label}: SVG export non-empty and valid`, svgOk, svgDetail);
+
+  // PNG export.
+  const snap2 = viaBlob ? null : dlSnapshot();
+  pt = await realClick('#btn-png');
+  await sleep(viaBlob ? 1600 : 2200);
+  let pngOk = false;
+  let pngDetail = '';
+  if (viaBlob) {
+    const info = await readBlobInfo(1, 'png');
+    const dbg = await evaluate(`JSON.stringify({clicks: window.__pfClicks || [], blobs: (window.__pfBlobs || []).length, log: (window.__pfLog || []).slice(-8)})`);
+    pngOk = !!info && info.type === 'image/png' && info.size > 20000 && info.w === 1400 && info.h === 1800 && info.colors > 12;
+    pngDetail = info ? `blob ${info.size}b ${info.w}x${info.h} ${info.colors} colors` : `no blob captured (${dbg})`;
+  } else {
+    let pngs = dlFresh(snap2, '.png');
+    if (!pngs.length) {
+      const hit = await hitAt(pt.lx ?? pt.x, pt.ly ?? pt.y);
+      pt = await realClick('#btn-png');
+      await sleep(2200);
+      pngs = dlFresh(snap2, '.png');
+      if (!pngs.length) pngDetail = `click at ${Math.round(pt.x)},${Math.round(pt.y)} hit ${hit}`;
+    }
+    if (pngs.length) {
+      const pngPath = pngs[pngs.length - 1];
+      const buf = readFileSync(pngPath);
+      const sigOk = buf.length > 20000 && buf[0] === 0x89 && buf[1] === 0x50 && buf.readUInt32BE(16) === 1400 && buf.readUInt32BE(20) === 1800;
+      if (sigOk) {
+        const b64 = buf.toString('base64');
+        const px = await evaluate(`(async () => {
+          const img = new Image();
+          await new Promise((res, rej) => { img.onload = res; img.onerror = () => rej(new Error('decode')); img.src = 'data:image/png;base64,${b64}'; });
+          const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+          const x = c.getContext('2d'); x.drawImage(img, 0, 0);
+          const d = x.getImageData(0, 0, c.width, c.height).data;
+          const colors = new Set();
+          for (let i = 0; i < d.length; i += 16000) colors.add(d[i] + ',' + d[i+1] + ',' + d[i+2]);
+          return { w: img.width, h: img.height, colors: colors.size };
+        })()`);
+        pngOk = px.w === 1400 && px.h === 1800 && px.colors > 12;
+        pngDetail = `${pngPath.split('/').pop()} ${buf.length}b ${px.w}x${px.h} ${px.colors} colors`;
+      } else {
+        pngDetail = `${pngPath.split('/').pop()} ${buf.length}b bad signature/dimensions`;
+      }
+    }
+  }
+  note(`${label}: PNG export decodes non-blank at 1400x1800`, pngOk, pngDetail);
 }
 
-await runViewport(390, 844, 'mobile');
+await runViewport(1440, 900, 'desktop', appUrl);
+await checkExports('desktop');
+await runViewport(390, 844, 'mobile', appUrlMobile);
+await checkExports('mobile', { viaBlob: true });
 
 note('zero console errors', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
 note('zero uncaught exceptions', exceptions.length === 0, exceptions.slice(0, 3).join(' | '));
