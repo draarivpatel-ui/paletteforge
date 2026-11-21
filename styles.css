@@ -65,6 +65,19 @@ html { scrollbar-color: var(--hairline) transparent; }
   outline-offset: 3px;
 }
 
+/* Visually hidden but reachable by assistive tech: the live region. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* ---------- header ---------- */
 
 .topbar {
@@ -231,7 +244,7 @@ button.quiet {
 
 button.quiet:hover { color: var(--ink); background: var(--paper-2); border-color: var(--hairline); }
 
-button[aria-pressed="true"] {
+button[aria-checked="true"] {
   background: var(--paper-2);
   color: var(--ink);
   border-color: var(--ink);
@@ -259,6 +272,7 @@ input[type="text"] {
 
 input[type="text"]:focus { border-color: var(--accent); outline: none; }
 input[type="text"]::placeholder { color: var(--ink-faint); opacity: 1; }
+input[type="text"][aria-invalid="true"] { border-color: var(--fail); }
 
 input[type="color"] {
   width: 40px;
@@ -277,7 +291,7 @@ input[type="color"]:focus-visible { outline: 2px solid var(--accent); outline-of
 .btn-grid.cols3 { grid-template-columns: 1fr 1fr 1fr; }
 .btn-grid.subtle { margin-top: 7px; }
 .btn-grid.subtle button { font-family: var(--mono); font-size: 12px; padding: 7px 8px; color: var(--ink-soft); min-height: 34px; }
-.btn-grid.subtle button[aria-pressed="true"] { color: var(--ink); }
+.btn-grid.subtle button[aria-checked="true"] { color: var(--ink); }
 .btn-grid button { padding: 9px 6px; font-size: 13px; min-height: 38px; }
 
 .note {
@@ -285,6 +299,9 @@ input[type="color"]:focus-visible { outline: 2px solid var(--accent); outline-of
   color: var(--ink-soft);
   margin: 9px 0 0;
 }
+
+.note.ok { color: var(--pass); }
+.note.bad { color: var(--fail); }
 
 .drop {
   appearance: none;

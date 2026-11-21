@@ -9,6 +9,7 @@ import {
   isInSrgbGamut,
   hexToRgb,
   rgbToHex,
+  parseOklch,
   relativeLuminance,
   contrastRatio,
   contrastBadge,
@@ -16,6 +17,13 @@ import {
   extractPaletteFromPixels,
   generateHarmony,
 } from './color-science.mjs';
+
+import {
+  exportProofJson,
+  exportCssTokens,
+  exportTailwindConfig,
+  exportFigmaTokens,
+} from './report.mjs';
 
 import {
   fnv1a,
@@ -102,6 +110,19 @@ export function runSelfTests() {
   check('unknown harmony in hash falls back', badHarm && badHarm.harmony === 'triadic', badHarm ? badHarm.harmony : 'null');
   const hx = hexToRgb('#4f8ac2');
   check('hex round-trip', rgbToHex(hx.r, hx.g, hx.b) === '#4f8ac2', '#4f8ac2');
+
+  // OKLCH text input parser.
+  const okp = parseOklch('oklch(0.55 0.14 28)');
+  check('oklch input parses', okp && Math.abs(okp.L - 0.55) < 1e-9 && Math.abs(okp.C - 0.14) < 1e-9 && okp.H === 28, JSON.stringify(okp));
+  check('oklch input rejects garbage', parseOklch('oklch(foo bar)') === null && parseOklch('0.5 0.1') === null, 'rejected');
+
+  // Proof report and token exporters.
+  const proof = JSON.parse(exportProofJson(pal, { seed: 'selftest', mode: 'flow', harmony: 'triadic', base: '#c8451f' }));
+  check('proof report parses with four visions', proof.visions && proof.visions.length === 4, `${proof.visions && proof.visions.length} visions`);
+  check('proof pairs carry wcag flags', proof.visions[0].pairs.every((p) => typeof p.wcag.aaa === 'boolean'), 'flags');
+  check('css tokens declare swatch vars', exportCssTokens(pal).includes('--pf-swatch-1'), 'vars');
+  check('tailwind config emits module exports', exportTailwindConfig(pal).includes('module.exports'), 'cjs');
+  check('figma tokens carry $type color', JSON.parse(exportFigmaTokens(pal)).paletteforge.color['1'].$type === 'color', 'color');
 
   return results;
 }

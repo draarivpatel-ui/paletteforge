@@ -159,6 +159,42 @@ export function formatOklch(L, C, H) {
   return `oklch(${L.toFixed(3)} ${C.toFixed(3)} ${H.toFixed(1)})`;
 }
 
+// Parses a user-typed OKLCH color into {L, C, H}, or null when the input does
+// not check out. Accepts the CSS spelling 'oklch(0.55 0.14 28)', a lightness or
+// chroma percentage ('55%' maps to 0.55 and '50%' chroma to 0.2, the CSS 0.4
+// reference range), an optional 'deg' on hue, comma separators, an alpha slash
+// segment (ignored), and a bare triple '0.55 0.14 28'. Wrong arity, non-numeric
+// channels, and percent-signed hue are rejected rather than guessed. Negative
+// chroma clamps to zero and hue wraps into [0, 360), matching the CSS parser's
+// own recovery rules.
+export function parseOklch(input) {
+  if (typeof input !== 'string') return null;
+  let s = input.trim().toLowerCase();
+  if (!s) return null;
+  if (s.startsWith('oklch')) {
+    const m = /^oklch\(\s*(.*?)\s*\)$/s.exec(s);
+    if (!m) return null;
+    s = m[1];
+  }
+  s = s.split('/')[0].trim().replace(/,/g, ' ');
+  const parts = s.split(/\s+/).filter(Boolean);
+  if (parts.length !== 3) return null;
+  const chan = (p, allowPct, pctScale, allowDeg) => {
+    const m = /^([-+]?[0-9]*\.?[0-9]+(?:e[-+]?[0-9]+)?)(%|deg)?$/.exec(p);
+    if (!m) return null;
+    const v = parseFloat(m[1]);
+    if (m[2] === '%') return allowPct ? v * pctScale : null;
+    if (m[2] === 'deg') return allowDeg ? v : null;
+    return v;
+  };
+  const L = chan(parts[0], true, 0.01, false);
+  const C = chan(parts[1], true, 0.004, false);
+  const H = chan(parts[2], false, 0, true);
+  if (L === null || C === null || H === null) return null;
+  if (!Number.isFinite(L) || !Number.isFinite(C) || !Number.isFinite(H)) return null;
+  return { L, C: Math.max(0, C), H: wrapHue(H) };
+}
+
 // ---------------------------------------------------------------------------
 // WCAG 2.1 relative luminance and contrast ratio
 // ---------------------------------------------------------------------------
@@ -194,7 +230,7 @@ export function contrastMatrix(colors) {
 
 export const CVD_TYPES = ['protanopia', 'deuteranopia', 'tritanopia'];
 
-const CVD_MATRICES = {
+export const CVD_MATRICES = {
   protanopia: [
     0.152286, 1.052583, -0.204868,
     0.114503, 0.786281, 0.099216,

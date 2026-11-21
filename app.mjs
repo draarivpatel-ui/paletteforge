@@ -8,6 +8,7 @@ import {
   formatOklch,
   srgbToOklch,
   gamutMapOklch,
+  parseOklch,
   generateHarmony,
   contrastMatrix,
   contrastRatio,
@@ -19,6 +20,13 @@ import {
   HARMONY_LABELS,
   CVD_TYPES,
 } from './src/color-science.mjs';
+
+import {
+  exportProofJson,
+  exportCssTokens,
+  exportTailwindConfig,
+  exportFigmaTokens,
+} from './src/report.mjs';
 
 import {
   composePoster,
@@ -51,6 +59,20 @@ const DEFAULTS = {
 const state = { ...DEFAULTS, customPalette: null };
 const poster = $('#poster');
 const pctx = poster.getContext('2d');
+
+// Polite live region: every state change that matters to a screen-reader user
+// is announced here in one short sentence. The clear-then-set pattern makes
+// repeated identical messages (two rejected applies in a row) re-announce.
+const liveEl = $('#live');
+let liveTimer = 0;
+function announce(msg) {
+  if (!liveEl) return;
+  liveEl.textContent = '';
+  clearTimeout(liveTimer);
+  liveTimer = setTimeout(() => {
+    liveEl.textContent = msg;
+  }, 30);
+}
 
 // The poster develops like a print coming up in the developer: ops are
 // painter-ordered and purely additive, so painting them in timed batches
@@ -280,14 +302,42 @@ function renderMatrix(rgbs, hexes) {
     `${state.cvd !== 'none' ? ' Ratios computed on the simulated palette.' : ''}`;
 }
 
+const RADIO_GROUPS = [
+  ['#mode-group', 'mode', () => state.mode],
+  ['#harmony-group', 'harmony', () => (state.customPalette ? null : state.harmony)],
+  ['#symmetry-group', 'symmetry', () => state.symmetry],
+  ['#cvd-group', 'cvd', () => state.cvd],
+];
+
+// Single-select groups behave as radio groups: one Tab stop lands on the
+// checked item, aria-checked mirrors state, and arrow keys move and select.
+// While an extracted palette holds, no harmony is checked, so the stop rests
+// on the first item until a harmony is chosen again.
+function syncRadioGroup(sel, key, selected) {
+  const btns = [...document.querySelectorAll(`${sel} button`)];
+  const tabIdx = Math.max(0, btns.findIndex((b) => b.dataset[key] === selected));
+  btns.forEach((b, i) => {
+    b.setAttribute('aria-checked', String(b.dataset[key] === selected));
+    b.tabIndex = i === tabIdx ? 0 : -1;
+  });
+}
+
 function syncButtons() {
-  document.querySelectorAll('#mode-group button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === state.mode)));
-  document.querySelectorAll('#harmony-group button').forEach((b) =>
-    b.setAttribute('aria-pressed', String(!state.customPalette && b.dataset.harmony === state.harmony)));
-  document.querySelectorAll('#symmetry-group button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.symmetry === state.symmetry)));
-  document.querySelectorAll('#cvd-group button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.cvd === state.cvd)));
-  $('#seed-input').value = state.seed;
-  $('#base-hex').value = state.base;
+  for (const [sel, key, get] of RADIO_GROUPS) syncRadioGroup(sel, key, get());
+  // Focused text fields keep their in-progress text; an unfocused field is
+  // restored to state, which is also what clears a rejected entry cleanly.
+  const seedEl = $('#seed-input');
+  const hexEl = $('#base-hex');
+  const oklchEl = $('#base-oklch');
+  if (document.activeElement !== seedEl) seedEl.value = state.seed;
+  if (document.activeElement !== hexEl) {
+    hexEl.value = state.base;
+    hexEl.removeAttribute('aria-invalid');
+  }
+  if (document.activeElement !== oklchEl && oklchEl.getAttribute('aria-invalid') === 'true') {
+    oklchEl.value = '';
+    oklchEl.removeAttribute('aria-invalid');
+  }
   $('#base-color').value = state.base;
   document.documentElement.dataset.theme = state.theme;
   $('#btn-theme').textContent = state.theme === 'dark' ? 'Daylight' : 'Dark room';
@@ -302,38 +352,178 @@ function syncHash() {
 // Events
 // ---------------------------------------------------------------------------
 
-function setMode(m) { if (MODES.includes(m)) { state.mode = m; render(); } }
-function setSymmetry(s) { if (SYMMETRIES.includes(s)) { state.symmetry = s; render(); } }
-function setHarmony(h) {
-  if (HARMONY_MODES.includes(h)) { state.harmony = h; state.customPalette = null; render(); }
+// The pass/fail line the contrast matrix shows, spoken after palette changes.
+const aaSummary = () => contrastPassCount(activeHexes().map((h) => hexToRgb(h)));
+
+function setMode(m) {
+  if (!MODES.includes(m)) return;
+  state.mode = m;
+  render();
+  announce(`composition ${MODE_LABELS[m].toLowerCase()}`);
 }
-function setCvd(c) { if (['none', ...CVD_TYPES].includes(c)) { state.cvd = c; render(); } }
+function setSymmetry(s) {
+  if (!SYMMETRIES.includes(s)) return;
+  state.symmetry = s;
+  render();
+  announce(`symmetry ${s}`);
+}
+function setHarmony(h) {
+  if (!HARMONY_MODES.includes(h)) return;
+  state.harmony = h;
+  state.customPalette = null;
+  render();
+  announce(`harmony ${HARMONY_LABELS[h].toLowerCase()}, ${aaSummary()}`);
+}
+function setCvd(c) {
+  if (!['none', ...CVD_TYPES].includes(c)) return;
+  state.cvd = c;
+  render();
+  announce(c === 'none' ? 'full color vision restored' : `${c} simulation, ${aaSummary()}`);
+}
 
 $('#mode-group').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setMode(b.dataset.mode); });
 $('#symmetry-group').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setSymmetry(b.dataset.symmetry); });
 $('#harmony-group').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setHarmony(b.dataset.harmony); });
 $('#cvd-group').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setCvd(b.dataset.cvd); });
 
+// Roving radio groups: arrow keys and Home/End move focus and select
+// together, matching the radiogroup semantics in the markup. Enter and
+// Space keep working through the click delegation above.
+function wireRadioNav(sel, key, apply) {
+  const g = $(sel);
+  g.addEventListener('keydown', (e) => {
+    const btns = [...g.querySelectorAll('button')];
+    const i = btns.indexOf(e.target.closest('button'));
+    if (i < 0) return;
+    const move = {
+      ArrowRight: i + 1,
+      ArrowDown: i + 1,
+      ArrowLeft: i - 1,
+      ArrowUp: i - 1,
+      Home: 0,
+      End: btns.length - 1,
+    }[e.key];
+    if (move === undefined) return;
+    e.preventDefault();
+    const j = ((move % btns.length) + btns.length) % btns.length;
+    btns[j].focus();
+    apply(btns[j].dataset[key]);
+  });
+}
+wireRadioNav('#mode-group', 'mode', setMode);
+wireRadioNav('#symmetry-group', 'symmetry', setSymmetry);
+wireRadioNav('#harmony-group', 'harmony', setHarmony);
+wireRadioNav('#cvd-group', 'cvd', setCvd);
+
 $('#btn-seed').addEventListener('click', applySeedInput);
-$('#seed-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') applySeedInput(); });
+$('#seed-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') applySeedInput();
+  else if (e.key === 'Escape') {
+    e.target.value = state.seed;
+    announce('seed restored');
+  }
+});
 function applySeedInput() {
   const s = sanitizeSeed($('#seed-input').value);
-  if (s) { state.seed = s; render(); } else { $('#seed-input').value = state.seed; }
+  if (s) {
+    state.seed = s;
+    render();
+    announce(`seed ${s}`);
+  } else {
+    $('#seed-input').value = state.seed;
+    announce('seed unchanged');
+  }
+}
+
+// Shared feedback line for the two color inputs: acceptance and rejection
+// both land here and in the live region. aria-invalid marks the field whose
+// last apply failed; it clears when the text changes, on success, or on
+// Escape, and render() restores the field itself once it loses focus.
+const colorNote = $('#color-note');
+function colorFeedback(msg, ok) {
+  colorNote.textContent = msg;
+  colorNote.className = ok ? 'note ok' : 'note bad';
+  announce(msg);
+}
+function clearColorNote() {
+  colorNote.textContent = '';
+  colorNote.className = 'note';
 }
 
 $('#btn-base').addEventListener('click', applyBase);
-$('#base-hex').addEventListener('keydown', (e) => { if (e.key === 'Enter') applyBase(); });
+$('#base-hex').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') applyBase();
+  else if (e.key === 'Escape') {
+    e.target.value = state.base;
+    e.target.removeAttribute('aria-invalid');
+    clearColorNote();
+    announce('base color restored');
+  }
+});
+$('#base-hex').addEventListener('input', (e) => {
+  e.target.removeAttribute('aria-invalid');
+  clearColorNote();
+});
 // The color well commits on change (picker close) so a live drag does not
 // re-render the poster on every intermediate value.
 $('#base-color').addEventListener('change', () => {
   const v = $('#base-color').value;
-  if (v) { state.base = v.toLowerCase(); state.customPalette = null; render(); }
+  if (v) {
+    state.base = v.toLowerCase();
+    state.customPalette = null;
+    render();
+    announce(`base color set to ${state.base}`);
+  }
 });
 function applyBase() {
-  const v = $('#base-hex').value.trim();
+  const hexEl = $('#base-hex');
+  const v = hexEl.value.trim();
   const c = hexToRgb(v.startsWith('#') ? v : '#' + v);
-  if (c) { state.base = rgbToHex(c.r, c.g, c.b); state.customPalette = null; render(); }
-  else { $('#base-hex').value = state.base; }
+  if (!c) {
+    hexEl.setAttribute('aria-invalid', 'true');
+    colorFeedback(`not a hex color, kept ${state.base}`, false);
+    return;
+  }
+  state.base = rgbToHex(c.r, c.g, c.b);
+  state.customPalette = null;
+  hexEl.removeAttribute('aria-invalid');
+  $('#base-oklch').removeAttribute('aria-invalid');
+  colorFeedback(`base color set to ${state.base}, ${aaSummary()}`, true);
+  render();
+}
+
+// A typed OKLCH triple goes through the same chroma-bisection gamut map as
+// generated colors, so 'oklch(0.7 0.4 30)' lands on the nearest displayable
+// color at that hue and lightness instead of clipping channels raw.
+$('#btn-oklch').addEventListener('click', applyOklch);
+$('#base-oklch').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') applyOklch();
+  else if (e.key === 'Escape') {
+    e.target.value = '';
+    e.target.removeAttribute('aria-invalid');
+    clearColorNote();
+    announce('oklch field cleared');
+  }
+});
+$('#base-oklch').addEventListener('input', (e) => {
+  e.target.removeAttribute('aria-invalid');
+  clearColorNote();
+});
+function applyOklch() {
+  const oklchEl = $('#base-oklch');
+  const p = parseOklch(oklchEl.value);
+  if (!p) {
+    oklchEl.setAttribute('aria-invalid', 'true');
+    colorFeedback(`not an oklch triple, kept ${state.base}`, false);
+    return;
+  }
+  const m = gamutMapOklch(p.L, p.C, p.H);
+  state.base = rgbToHex(m.r, m.g, m.b);
+  state.customPalette = null;
+  oklchEl.removeAttribute('aria-invalid');
+  $('#base-hex').removeAttribute('aria-invalid');
+  colorFeedback(`oklch(${p.L.toFixed(2)} ${p.C.toFixed(2)} ${Math.round(p.H)}) mapped to ${state.base}, ${aaSummary()}`, true);
+  render();
 }
 
 $('#btn-surprise').addEventListener('click', () => {
@@ -346,6 +536,7 @@ $('#btn-surprise').addEventListener('click', () => {
   state.harmony = HARMONY_MODES[Math.floor(Math.random() * HARMONY_MODES.length)];
   state.customPalette = null;
   render();
+  announce(`surprise seed ${state.seed}, ${HARMONY_LABELS[state.harmony].toLowerCase()} harmony`);
 });
 
 // Sample artwork extraction: compose small posters offscreen, read their
@@ -369,9 +560,11 @@ $('#btn-extract').addEventListener('click', () => {
     if (pal.length) {
       state.customPalette = pal.map((p) => p.hex);
       render();
+      announce(`extracted ${pal.length} colors from sample art, ${aaSummary()}`);
     }
   } catch {
     // Canvas readback unavailable; leave the current palette in place.
+    announce('sample extraction unavailable');
   }
 });
 
@@ -380,6 +573,7 @@ $('#btn-copy').addEventListener('click', async () => {
   const url = location.href;
   const flash = () => {
     btn.textContent = 'Link copied';
+    announce('share link copied');
     setTimeout(() => { btn.textContent = 'Copy share link'; }, 1400);
   };
   try {
@@ -426,7 +620,10 @@ fileInput.addEventListener('change', () => {
 });
 
 function extractFile(file) {
-  if (!file.type || !file.type.startsWith('image/')) return;
+  if (!file.type || !file.type.startsWith('image/')) {
+    announce('not an image file, palette unchanged');
+    return;
+  }
   const reader = new FileReader();
   reader.onload = () => {
     const img = new Image();
@@ -441,13 +638,49 @@ function extractFile(file) {
         ctx.drawImage(img, 0, 0, w, h);
         const data = ctx.getImageData(0, 0, w, h);
         const pal = extractPaletteFromPixels(data.data, w, h, 5);
-        if (pal.length) { state.customPalette = pal.map((p) => p.hex); render(); }
-      } catch { /* unreadable image; keep current palette */ }
+        if (pal.length) {
+          state.customPalette = pal.map((p) => p.hex);
+          render();
+          announce(`extracted ${pal.length} colors from image, ${aaSummary()}`);
+        }
+      } catch {
+        // Unreadable image; keep current palette.
+        announce('image unreadable, palette unchanged');
+      }
     };
+    img.onerror = () => announce('image unreadable, palette unchanged');
     img.src = reader.result;
   };
   reader.readAsDataURL(file);
 }
+
+const slug = () => state.seed.replace(/\W+/g, '-').replace(/^-+|-+$/g, '') || 'poster';
+
+// Metadata block carried into the proof report; the natural (un-simulated)
+// palette is what the tokens describe, the report itself holds the
+// simulated views under each vision type.
+const exportMeta = () => ({
+  seed: state.seed,
+  mode: state.mode,
+  harmony: state.customPalette ? 'extracted' : state.harmony,
+  base: state.base,
+});
+
+const exportNote = $('#export-note');
+function tokenDownload(label, text, name, mime) {
+  download(new Blob([text], { type: mime }), name);
+  exportNote.textContent = `${name} saved`;
+  announce(`${label} downloaded`);
+}
+
+$('#btn-export-json').addEventListener('click', () =>
+  tokenDownload('proof report', exportProofJson(naturalHexes(), exportMeta()), `paletteforge-${slug()}-proof.json`, 'application/json'));
+$('#btn-export-css').addEventListener('click', () =>
+  tokenDownload('css tokens', exportCssTokens(naturalHexes(), exportMeta()), `paletteforge-${slug()}.css`, 'text/css'));
+$('#btn-export-tw').addEventListener('click', () =>
+  tokenDownload('tailwind config', exportTailwindConfig(naturalHexes(), exportMeta()), `paletteforge-${slug()}.tailwind.config.cjs`, 'text/javascript'));
+$('#btn-export-figma').addEventListener('click', () =>
+  tokenDownload('figma tokens', exportFigmaTokens(naturalHexes(), exportMeta()), `paletteforge-${slug()}.tokens.json`, 'application/json'));
 
 $('#btn-svg').addEventListener('click', () => {
   const svg = exportPosterSvg(state.seed, state.mode, activeHexes(), {
@@ -457,7 +690,8 @@ $('#btn-svg').addEventListener('click', () => {
     oklchLine: '',
     background: '#f6f1e7',
   });
-  download(new Blob([svg], { type: 'image/svg+xml' }), `paletteforge-${state.seed.replace(/\W+/g, '-')}-${state.mode}.svg`);
+  download(new Blob([svg], { type: 'image/svg+xml' }), `paletteforge-${slug()}-${state.mode}.svg`);
+  announce('poster svg downloaded');
 });
 
 $('#btn-png').addEventListener('click', () => {
@@ -477,7 +711,10 @@ $('#btn-png').addEventListener('click', () => {
   });
   drawOps(ctx, ops, 1);
   off.toBlob((blob) => {
-    if (blob) download(blob, `paletteforge-${state.seed.replace(/\W+/g, '-')}-${state.mode}.png`);
+    if (blob) {
+      download(blob, `paletteforge-${slug()}-${state.mode}.png`);
+      announce('poster png downloaded');
+    }
   }, 'image/png');
 });
 
@@ -498,6 +735,7 @@ $('#btn-tests').addEventListener('click', () => {
   $('#test-block').hidden = false;
   const summary = $('#test-summary');
   summary.textContent = `${pass}/${results.length} checks passing`;
+  announce(summary.textContent);
   summary.className = pass === results.length ? 'note ok' : 'note bad';
   const list = $('#test-list');
   list.innerHTML = '';
@@ -512,6 +750,7 @@ $('#btn-tests').addEventListener('click', () => {
 $('#btn-theme').addEventListener('click', () => {
   state.theme = state.theme === 'dark' ? 'light' : 'dark';
   render();
+  announce(state.theme === 'dark' ? 'dark room' : 'daylight');
 });
 
 window.addEventListener('hashchange', () => {
@@ -520,6 +759,7 @@ window.addEventListener('hashchange', () => {
   Object.assign(state, s);
   state.customPalette = null;
   render();
+  announce('poster restored from link');
 });
 
 // Boot: hash wins over defaults, then one clean render.

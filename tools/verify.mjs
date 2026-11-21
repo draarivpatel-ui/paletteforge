@@ -248,6 +248,38 @@ async function runViewport(w, h, label, url = appUrl) {
   note(`${label}: CVD toggle by click`, note2.includes('deuteranopia'), `${note2.slice(0, 60)}`);
   await realClick('#cvd-none');
 
+  // Radio-group keyboard navigation: focus a harmony option, press ArrowRight,
+  // and focus plus selection should move together to the next item.
+  await evaluate(`document.getElementById('harm-triadic').focus(); 'ok'`);
+  for (const type of ['rawKeyDown', 'keyUp']) {
+    await send('Input.dispatchKeyEvent', { type, key: 'ArrowRight', code: 'ArrowRight', windowsVirtualKeyCode: 39, nativeVirtualKeyCode: 39 }, S);
+  }
+  await sleep(200);
+  const arrow = await evaluate(`(() => { const el = document.activeElement; return { id: el && el.id, checked: el && el.getAttribute('aria-checked'), meta: document.getElementById('placard-meta').textContent }; })()`);
+  note(`${label}: arrow key navigates the radio group`, arrow && arrow.id === 'harm-analogous' && arrow.checked === 'true' && arrow.meta.includes('analogous'), JSON.stringify(arrow).slice(0, 120));
+
+  // The polite live region announced that change.
+  const live = await evaluate(`document.getElementById('live').textContent`);
+  note(`${label}: live region announces changes`, typeof live === 'string' && live.length > 4, live.slice(0, 70));
+
+  // Malformed hex input is rejected and flagged, not silently dropped.
+  await evaluate(`(() => { const el = document.getElementById('base-hex'); el.value = 'not-a-hex'; el.dispatchEvent(new Event('input')); return true; })()`);
+  await realClick('#btn-base');
+  const badHex = await evaluate(`(() => ({ invalid: document.getElementById('base-hex').getAttribute('aria-invalid'), note: document.getElementById('color-note').textContent }))()`);
+  note(`${label}: malformed hex rejected and announced`, badHex.invalid === 'true' && badHex.note.includes('kept'), badHex.note.slice(0, 60));
+
+  // A typed OKLCH triple gamut-maps into a real base color.
+  await evaluate(`(() => { const el = document.getElementById('base-oklch'); el.value = 'oklch(0.62 0.16 30)'; el.dispatchEvent(new Event('input')); return true; })()`);
+  await realClick('#btn-oklch');
+  const okRes = await evaluate(`(() => ({ hex: document.getElementById('base-hex').value, note: document.getElementById('color-note').textContent }))()`);
+  note(`${label}: oklch input applies through the gamut map`, /^#[0-9a-f]{6}$/.test(okRes.hex) && okRes.note.includes('mapped'), `${okRes.hex} ${okRes.note.slice(0, 50)}`);
+
+  // A malformed OKLCH triple is rejected the same way.
+  await evaluate(`(() => { const el = document.getElementById('base-oklch'); el.value = 'oklch(nope)'; el.dispatchEvent(new Event('input')); return true; })()`);
+  await realClick('#btn-oklch');
+  const badOk = await evaluate(`(() => ({ invalid: document.getElementById('base-oklch').getAttribute('aria-invalid'), note: document.getElementById('color-note').textContent }))()`);
+  note(`${label}: malformed oklch rejected and announced`, badOk.invalid === 'true' && badOk.note.includes('kept'), badOk.note.slice(0, 60));
+
   // Sample art extraction.
   await realClick('#btn-extract');
   const srcNote = await evaluate(`document.getElementById('palette-source-note').textContent`);
@@ -414,6 +446,67 @@ async function checkExports(label, { viaBlob = false } = {}) {
     }
   }
   note(`${label}: PNG export decodes non-blank at 1400x1800`, pngOk, pngDetail);
+
+  // Token exports: real clicks on each of the four buttons, payloads captured
+  // through a createObjectURL hook (Chrome caps file downloads per session, so
+  // the produced blob is the reliable artifact to audit).
+  await evaluate(`(() => {
+    window.__pfTokBlobs = [];
+    if (!window.__pfTokHooked) {
+      window.__pfTokHooked = true;
+      const orig = URL.createObjectURL.bind(URL);
+      URL.createObjectURL = (b) => { window.__pfTokBlobs.push(b); return orig(b); };
+    }
+    return true;
+  })()`);
+  const readTok = (idx) =>
+    evaluate(`(async () => {
+      const b = (window.__pfTokBlobs || [])[${idx}];
+      if (!b) return null;
+      return { type: b.type, size: b.size, text: await b.text() };
+    })()`);
+  for (const id of ['btn-export-json', 'btn-export-css', 'btn-export-tw', 'btn-export-figma']) {
+    await realClick('#' + id);
+    await sleep(500);
+  }
+
+  const pj = await readTok(0);
+  let pjOk = false;
+  let pjDetail = 'no blob captured';
+  if (pj) {
+    try {
+      const j = JSON.parse(pj.text);
+      pjOk = j.report === 'paletteforge-contrast-proof' &&
+        Array.isArray(j.visions) && j.visions.length === 4 &&
+        j.visions.every((v) => v.pairs.length > 0 && v.summary) &&
+        !/NaN|undefined/.test(pj.text);
+      pjDetail = `${pj.size}b ${j.visions && j.visions.length} visions ${j.verdict && j.verdict.pairs} pairs`;
+    } catch {
+      pjDetail = 'unparseable json';
+    }
+  }
+  note(`${label}: proof JSON export parses with four vision matrices`, pjOk, pjDetail);
+
+  const css = await readTok(1);
+  const cssVars = css ? (css.text.match(/--pf-swatch-\d+:/g) || []).length : 0;
+  const cssOk = css && css.text.includes(':root {') && cssVars >= 20 && css.text.includes('[data-vision="protanopia"]');
+  note(`${label}: CSS token export carries vars and vision blocks`, !!cssOk, css ? `${css.size}b ${cssVars} hex vars` : 'no blob');
+
+  const tw = await readTok(2);
+  const twOk = tw && tw.text.includes('module.exports') && tw.text.includes('paletteforge') && tw.text.includes('DEFAULT');
+  note(`${label}: Tailwind config export`, !!twOk, tw ? `${tw.size}b` : 'no blob');
+
+  const fg = await readTok(3);
+  let fgOk = false;
+  if (fg) {
+    try {
+      const j = JSON.parse(fg.text);
+      const color = j.paletteforge && j.paletteforge.color;
+      fgOk = !!color && Object.keys(color).length >= 10 &&
+        Object.values(color).every((x) => x.$type === 'color' && /^#[0-9a-f]{6}$/.test(x.$value));
+    } catch { /* stays false */ }
+  }
+  note(`${label}: Figma token export parses as design tokens`, fgOk, fg ? `${fg.size}b` : 'no blob');
 }
 
 await runViewport(1440, 900, 'desktop', appUrl);

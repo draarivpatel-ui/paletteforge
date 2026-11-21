@@ -12,7 +12,7 @@ import { pathToFileURL } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
 
-const SHIPPED = ['index.html', 'styles.css', 'app.mjs', 'src/color-science.mjs', 'src/generative.mjs', 'src/self-tests.mjs', 'README.md'];
+const SHIPPED = ['index.html', 'styles.css', 'app.mjs', 'src/color-science.mjs', 'src/generative.mjs', 'src/report.mjs', 'src/self-tests.mjs', 'README.md'];
 
 test('no em dashes or en dashes anywhere in shipped files', async (t) => {
   for (const f of SHIPPED) {
@@ -48,7 +48,7 @@ test('banned CSS and banned label structures are absent', async (t) => {
 });
 
 test('zero external network references in shipped code', async (t) => {
-  const files = ['index.html', 'styles.css', 'app.mjs', 'src/color-science.mjs', 'src/generative.mjs', 'src/self-tests.mjs'];
+  const files = ['index.html', 'styles.css', 'app.mjs', 'src/color-science.mjs', 'src/generative.mjs', 'src/report.mjs', 'src/self-tests.mjs'];
   for (const f of files) {
     await t.test(f, () => {
       const s = read(f);
