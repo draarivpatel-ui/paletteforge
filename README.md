@@ -4,6 +4,8 @@ A zero-dependency OKLCH color-science and seeded generative poster studio, built
 site. Open `index.html` over any static file server and everything runs locally in the page: no
 build step, no packages, no external network requests of any kind.
 
+**Live demo:** [https://aariv.me/paletteforge/](https://aariv.me/paletteforge/)
+
 ## What it does
 
 - Converts colors exactly between sRGB, linear sRGB, Oklab, and OKLCH (Bjorn Ottosson's matrices).
