@@ -32,6 +32,16 @@ build step, no packages, no external network requests of any kind.
   superformula) to canvas, deterministic SVG, and a 1400 x 1800 PNG with a specimen footer.
 - Stores the whole state in the URL hash so any poster can be shared or restored exactly.
 - Verifies itself: an in-page button runs deterministic golden-value checks in the browser.
+- Ships a calibration lab that grades all six harmonies under full vision and all three
+  dichromat simulations: unrounded AA, AAA, and large-text pass counts per cell, minimum
+  pairwise Oklab distance, and the tightest CVD-confusable pair flagged per row.
+- Draws the exact sRGB gamut silhouette in the OKLCH (L, C) slice at the base hue by
+  constant-hue chroma bisection, marks the gamut cusp, and plots the palette swatches plus
+  the clip vector an out-of-gamut target follows to the boundary.
+- Stamps a FIPS 180-4 SHA-256 digest (pure JS, no crypto imports) over a canonical audit
+  brief: the on-page fingerprint, the JSON export, the CSV provenance header, and the
+  Markdown footer all carry the same digest, and a verify control proves that flipping a
+  single field breaks verification. CSV cells are formula-escaped.
 
 ## The math
 
@@ -60,6 +70,7 @@ app.mjs             state, rendering, extraction, export wiring
 src/color-science.mjs   OKLCH, gamut map, harmonies, WCAG, CVD, median cut, OKLCH parser
 src/generative.mjs      PRNG, noise, four composers, SVG export, hash codec
 src/report.mjs          contrast proof report and token exporters (css, tailwind, figma)
+src/gamut-lab.mjs       SHA-256, gamut-cusp slice, harmony x vision comparator, audited exports
 src/self-tests.mjs      in-page verification checks
 tests/                  node --test suite
 tools/verify.mjs        headless browser verification script
@@ -67,7 +78,7 @@ tools/verify.mjs        headless browser verification script
 
 ## Tests
 
-The suite currently reports 523 passing checks with zero failures:
+The suite currently reports 711 passing checks with zero failures:
 
 ```
 npm test

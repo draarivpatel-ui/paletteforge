@@ -20,8 +20,8 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const MIME = { '.html': 'text/html', '.css': 'text/css', '.mjs': 'text/javascript', '.js': 'text/javascript', '.json': 'application/json', '.md': 'text/plain', '.svg': 'image/svg+xml', '.png': 'image/png' };
 
-const profile = mkdtempSync(join(tmpdir(), 'pf-verify-profile-'));
-const downloadDir = mkdtempSync(join(tmpdir(), 'pf-verify-dl-'));
+const profile = mkdtempSync(join(tmpdir(), 'pf-audit-profile-'));
+const downloadDir = mkdtempSync(join(tmpdir(), 'pf-audit-dl-'));
 const results = [];
 const note = (name, pass, detail = '') => {
   results.push({ name, pass });
@@ -298,6 +298,83 @@ async function runViewport(w, h, label, url = appUrl) {
   const summary = await evaluate(`document.getElementById('test-summary').textContent`);
   const anyBad = await evaluate(`document.querySelectorAll('#test-list .dot.bad').length`);
   note(`${label}: self-tests run and all pass`, /\d+\/\d+/.test(summary) && anyBad === 0, summary);
+
+  // Calibration lab: the module loads, the section unhides, and the audited
+  // fingerprint shows a real SHA-256 digest.
+  const labVisible = await evaluate(`(() => { const s = document.getElementById('lab'); return s && !s.hidden && s.querySelector('table'); })()`);
+  note(`${label}: calibration lab loaded and unhidden`, !!labVisible);
+
+  // Six comparator rows, each with an apply control.
+  const labRows = await evaluate(`document.querySelectorAll('#lab-comparator tbody tr').length`);
+  const labApplies = await evaluate(`document.querySelectorAll('#lab-comparator [data-lab-apply]').length`);
+  note(`${label}: comparator is 6x4 with apply buttons`, labRows === 6 && labApplies === 6, `${labRows} rows ${labApplies} apply`);
+
+  // A real click on an apply control switches the active harmony.
+  await evaluate(`(() => { const b = document.querySelector('[data-lab-apply="analogous"]'); return b && (b.scrollIntoView({block:'center'}), true); })()`);
+  await realClick('[data-lab-apply="analogous"]');
+  const placardLab = await evaluate(`document.getElementById('placard-meta').textContent`);
+  note(`${label}: lab apply button switches harmony`, placardLab.includes('analogous'), placardLab.slice(0, 90));
+
+  // The gamut-cusp slice chart draws a filled hull, focusable palette dots,
+  // and a clip vector; dots are keyboard-reachable.
+  const sliceInfo = await evaluate(`(() => {
+    const svg = document.querySelector('#lab-slice svg');
+    if (!svg) return null;
+    return {
+      hull: !!svg.querySelector('.hull'),
+      dots: svg.querySelectorAll('.swatch-dot').length,
+      focusable: svg.querySelectorAll('[tabindex]').length,
+      cusp: !!svg.querySelector('.cuspring'),
+      clip: !!svg.querySelector('.clip-vec'),
+    };
+  })()`);
+  note(`${label}: gamut slice svg renders hull dots cusp and clip vector`,
+    !!sliceInfo && sliceInfo.hull && sliceInfo.dots >= 5 && sliceInfo.focusable >= 6 && sliceInfo.cusp && sliceInfo.clip,
+    JSON.stringify(sliceInfo));
+
+  // The CVD separability strip draws one bar per vision mode.
+  const sepBars = await evaluate(`document.querySelectorAll('#lab-sep rect.bar').length`);
+  note(`${label}: CVD separability strip has four bars`, sepBars === 4, `${sepBars} bars`);
+
+  // The digest line is a 64-hex SHA-256.
+  const digest = await evaluate(`document.getElementById('lab-digest').textContent.trim()`);
+  note(`${label}: sha256 fingerprint on page`, /^[0-9a-f]{64}$/.test(digest), digest.slice(0, 20));
+
+  // Verify and tamper demo: real click, then the note reports the live verify
+  // plus the rejected tampered copy.
+  await realClick('#btn-lab-verify');
+  const verifyNote = await evaluate(`document.getElementById('lab-export-note').textContent`);
+  note(`${label}: verify and tamper demo by click`, verifyNote.includes('verified live') && verifyNote.includes('rejected'), verifyNote.slice(0, 90));
+
+  // The audited JSON export carries the same digest as the page fingerprint.
+  await evaluate(`(() => {
+    window.__pfLabBlobs = [];
+    if (!window.__pfLabHooked) {
+      window.__pfLabHooked = true;
+      const orig = URL.createObjectURL.bind(URL);
+      URL.createObjectURL = (b) => { window.__pfLabBlobs.push(b); return orig(b); };
+    }
+    return true;
+  })()`);
+  await realClick('#btn-lab-json');
+  await sleep(500);
+  const labJson = await evaluate(`(async () => { const b = window.__pfLabBlobs[0]; return b ? await b.text() : null; })()`);
+  let labJsonOk = false;
+  if (labJson) {
+    try {
+      const j = JSON.parse(labJson);
+      labJsonOk = j.digest === digest && j.brief === 'paletteforge-gamut-lab-audit' && j.comparator.length === 6;
+    } catch { /* stays false */ }
+  }
+  note(`${label}: audit JSON export carries the page digest`, labJsonOk, labJson ? 'digest match' : 'no blob');
+
+  // Full URL-hash reload restoration: the state lives in the hash, so a real
+  // page reload must boot straight back into it.
+  const hash = await evaluate(`location.hash`);
+  await send('Page.reload', {}, S);
+  await sleep(1600);
+  const restored = await evaluate(`(() => ({ meta: document.getElementById('placard-meta').textContent, hash: location.hash }))()`);
+  note(`${label}: url hash reload restores state`, restored.meta.includes('analogous') && restored.hash === hash, restored.meta.slice(0, 80));
 
   // Theme toggle.
   await realClick('#btn-theme');

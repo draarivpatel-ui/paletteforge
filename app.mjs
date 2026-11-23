@@ -47,6 +47,23 @@ import { runSelfTests } from './src/self-tests.mjs';
 
 const $ = (sel) => document.querySelector(sel);
 
+// The calibration lab is an optional module: when src/gamut-lab.mjs loads,
+// the lab section unhides and refreshes with every render; when it is absent
+// the section simply stays hidden and the studio is unaffected.
+let labMod = null;
+let labBundle = null;
+const labSection = document.getElementById('lab');
+import('./src/gamut-lab.mjs')
+  .then((m) => {
+    labMod = m;
+    if (labSection) {
+      labSection.hidden = false;
+      wireLab();
+      render();
+    }
+  })
+  .catch(() => { /* lab stays hidden */ });
+
 const DEFAULTS = {
   seed: 'first light',
   mode: 'flow',
@@ -171,6 +188,7 @@ function render() {
   renderHueWheel(natural);
   renderMatrix(rgbs, hexes);
   renderPlacard();
+  renderLab();
   syncButtons();
   syncHash();
 }
@@ -285,6 +303,200 @@ function renderMatrix(rgbs, hexes) {
     `Rows are ink, columns are ground. AAA at 7, AA at 4.5, large text at 3. ` +
     `A leading < means the pair rounds up to that line but sits under it, so it fails.` +
     `${state.cvd !== 'none' ? ' Ratios computed on the simulated palette.' : ''}`;
+}
+
+// ---------------------------------------------------------------------------
+// Calibration lab. Every table cell and chart is rebuilt from the shared
+// audited bundle so the fingerprint, exports, and visuals never disagree.
+// ---------------------------------------------------------------------------
+
+const LAB_VISION_LABELS = {
+  none: 'full vision',
+  protanopia: 'protanopia',
+  deuteranopia: 'deuteranopia',
+  tritanopia: 'tritanopia',
+};
+
+const lf = (n) => (Math.round(n * 10) / 10).toString();
+
+function renderLab() {
+  if (!labMod || !labSection || labSection.hidden) return;
+  const base = hexToOklch(state.base);
+  const natural = naturalHexes();
+  labBundle = labMod.auditBundle({
+    seed: state.seed,
+    mode: state.mode,
+    harmony: state.customPalette ? 'extracted' : state.harmony,
+    symmetry: state.symmetry,
+    cvd: state.cvd,
+    theme: state.theme,
+    base: state.base,
+    palette: natural,
+  });
+  renderLabTable(labBundle.payload.comparator);
+  renderLabSlice(base, natural);
+  renderLabSep(natural);
+  $('#lab-digest').textContent = labBundle.digest;
+}
+
+// Six harmonies down, four vision modes across. Each cell reports unrounded
+// WCAG pass counts and the minimum pairwise Oklab distance; the tightest
+// CVD cell in each row is marked.
+function renderLabTable(rows) {
+  const wrap = $('#lab-comparator');
+  let html = '<table><thead><tr><th scope="col">harmony</th>';
+  for (const v of labMod.LAB_VISIONS) html += `<th scope="col">${LAB_VISION_LABELS[v]}</th>`;
+  html += '</tr></thead><tbody>';
+  rows.forEach((row) => {
+    const cur = !state.customPalette && row.harmony === state.harmony;
+    html += `<tr${cur ? ' class="current"' : ''}><th scope="row">` +
+      `${HARMONY_LABELS[row.harmony]}` +
+      `<button type="button" class="lab-apply" data-lab-apply="${row.harmony}">${cur ? 'applied' : 'apply'}</button></th>`;
+    row.cells.forEach((cell) => {
+      const t = cell.tightest;
+      const tip = t ? `swatches ${t.i + 1} and ${t.j + 1} closest, dE ${t.d}` : 'no pairs';
+      const worstCls = row.worstCvd && cell.vision === row.worstCvd.vision ? ' worst' : '';
+      html +=
+        `<td><span class="lab-cell${worstCls}" title="${tip}">` +
+        `<span class="lv">AA ${cell.aa}/${cell.pairs}</span>` +
+        `<span class="lv">AAA ${cell.aaa}/${cell.pairs}</span>` +
+        `<span class="lv">UI ${cell.ui}/${cell.pairs}</span>` +
+        `<span class="lv"><span class="dim">dE</span> ${cell.minDeltaE}</span>` +
+        `</span></td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+  let gw = null;
+  for (const row of rows) {
+    if (row.worstCvd && (!gw || row.worstCvd.minDeltaE < gw.minDeltaE)) {
+      gw = { harmony: row.harmony, ...row.worstCvd };
+    }
+  }
+  $('#lab-comparator-note').textContent = gw
+    ? `Tightest CVD-confusable pair is ${HARMONY_LABELS[gw.harmony].toLowerCase()} under ${gw.vision}, ` +
+      `swatches ${gw.pair.i + 1} and ${gw.pair.j + 1} at dE ${gw.minDeltaE}. ` +
+      `Counts are unordered pairs judged on unrounded ratios, AA 4.5, AAA 7, UI 3.`
+    : 'Counts are unordered pairs judged on unrounded ratios, AA 4.5, AAA 7, UI 3.';
+}
+
+// The sRGB gamut silhouette in the OKLCH (L, C) slice at the base hue, filled
+// as a hull. Palette swatches plot as focusable dots and the clip vector
+// shows an out-of-gamut target landing on the boundary.
+function renderLabSlice(base, natural) {
+  const wrap = $('#lab-slice');
+  const slice = labMod.gamutSlice(base.H);
+  const W = 330;
+  const H = 285;
+  const padL = 34;
+  const padR = 12;
+  const padT = 12;
+  const padB = 26;
+  const cAxis = Math.max(0.3, slice.cusp.C * 1.15);
+  const px = (c) => padL + (c / cAxis) * (W - padL - padR);
+  const py = (l) => padT + (1 - l) * (H - padT - padB);
+  const hull = slice.points.map((p) => `${lf(px(p.C))},${lf(py(p.L))}`).join(' ');
+  const cm = gamutMapOklch(slice.cusp.L, slice.cusp.C, slice.H);
+  const cuspHex = rgbToHex(cm.r, cm.g, cm.b);
+  let inner = '';
+  inner += `<polygon class="hull" points="${hull}" fill="var(--paper-2)" stroke="${cuspHex}"/>`;
+  for (const v of [0, 0.5, 1]) {
+    inner += `<line class="axisline" x1="${padL}" y1="${lf(py(v))}" x2="${W - padR}" y2="${lf(py(v))}" opacity="${v === 0 ? 1 : 0.35}"/>`;
+    inner += `<text class="tick" x="${padL - 6}" y="${lf(py(v) + 3)}" text-anchor="end">L ${v}</text>`;
+  }
+  for (const cv of [0, 0.1, 0.2, 0.3]) {
+    if (cv > cAxis) continue;
+    inner += `<line class="axisline" x1="${lf(px(cv))}" y1="${padT}" x2="${lf(px(cv))}" y2="${lf(py(0))}" opacity="0.35"/>`;
+    inner += `<text class="tick" x="${lf(px(cv))}" y="${H - 8}" text-anchor="middle">${cv.toFixed(1)}</text>`;
+  }
+  inner += `<line class="axisline" x1="${padL}" y1="${padT}" x2="${padL}" y2="${lf(py(0))}"/>`;
+  inner += `<line class="guide" x1="${padL}" y1="${lf(py(slice.cusp.L))}" x2="${lf(px(slice.cusp.C))}" y2="${lf(py(slice.cusp.L))}"/>`;
+  inner += `<line class="guide" x1="${lf(px(slice.cusp.C))}" y1="${lf(py(slice.cusp.L))}" x2="${lf(px(slice.cusp.C))}" y2="${lf(py(0))}"/>`;
+  natural.forEach((hex, i) => {
+    const ok = hexToOklch(hex);
+    inner +=
+      `<circle class="swatch-dot" tabindex="0" cx="${lf(px(ok.C))}" cy="${lf(py(ok.L))}" r="6" fill="${hex}" ` +
+      `aria-label="swatch ${i + 1} ${hex} at oklch lightness ${ok.L.toFixed(2)} chroma ${ok.C.toFixed(3)}">` +
+      `<title>swatch ${i + 1} ${hex}  L ${ok.L.toFixed(2)} C ${ok.C.toFixed(3)}</title></circle>`;
+  });
+  const target = labMod.projectToSlice(0.72, 0.42, base.H);
+  const tx = px(target.C);
+  const ty = py(target.L);
+  const lx = px(target.mapped.C);
+  const lyy = py(target.mapped.L);
+  inner +=
+    `<g class="clipgroup" tabindex="0" aria-label="clip vector from out-of-gamut target chroma ${target.C} to boundary chroma ${target.mapped.C.toFixed(3)}">` +
+    `<line class="clip-vec" x1="${lf(tx)}" y1="${lf(ty)}" x2="${lf(lx)}" y2="${lf(lyy)}"/>` +
+    `<circle class="clip-target" cx="${lf(tx)}" cy="${lf(ty)}" r="5"/>` +
+    `<circle class="clip-land" cx="${lf(lx)}" cy="${lf(lyy)}" r="5" fill="${target.mapped.hex}"/>` +
+    `<title>target oklch(${target.L} ${target.C} ${Math.round(target.H)}) clips to C ${target.mapped.C.toFixed(4)}</title></g>`;
+  inner += `<circle class="cuspring" cx="${lf(px(slice.cusp.C))}" cy="${lf(py(slice.cusp.L))}" r="7"/>`;
+  inner += `<circle class="cusp-dot" cx="${lf(px(slice.cusp.C))}" cy="${lf(py(slice.cusp.L))}" r="3.4" fill="${cuspHex}"/>`;
+  wrap.innerHTML =
+    `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="OKLCH gamut slice at hue ${Math.round(base.H)} degrees">${inner}</svg>`;
+  $('#lab-slice-note').textContent =
+    `sRGB boundary at hue ${Math.round(base.H)} deg, cusp at L ${slice.cusp.L.toFixed(2)} C ${slice.cusp.C.toFixed(3)}. ` +
+    `Dots are the palette, the dashed arrow clips an out-of-gamut target to the boundary.`;
+}
+
+// Minimum pairwise Oklab distance of the current palette under each vision
+// mode; the shortest bar is where two swatches are hardest to tell apart.
+function renderLabSep(natural) {
+  const wrap = $('#lab-sep');
+  const rows = labMod.LAB_VISIONS.map((v) => ({
+    v,
+    ...labMod.pairwiseCellStats(labMod.visionPalette(natural, v)),
+  }));
+  const worst = rows.reduce((m, r) => (r.minDelta < m.minDelta ? r : m), rows[0]);
+  const W = 330;
+  const rowH = 34;
+  const padL = 86;
+  const padR = 56;
+  const H = rowH * rows.length + 10;
+  const dAxis = Math.max(0.15, ...rows.map((r) => r.minDelta)) * 1.18;
+  const bw = W - padL - padR;
+  let inner = `<line class="axisline" x1="${padL}" y1="6" x2="${padL}" y2="${H - 4}"/>`;
+  rows.forEach((r, i) => {
+    const y = 8 + i * rowH;
+    const w = Math.max(1.5, (r.minDelta / dAxis) * bw);
+    const cls = r === worst ? 'bar worst' : r.v === 'none' ? 'bar dim' : 'bar';
+    const t = r.tightest;
+    const pair = t ? ` (${t.i + 1}-${t.j + 1})` : '';
+    inner += `<text class="barlab" x="${padL - 8}" y="${y + 15}" text-anchor="end">${LAB_VISION_LABELS[r.v]}</text>`;
+    inner += `<rect class="${cls}" x="${padL}" y="${y + 2}" width="${lf(w)}" height="16" rx="2"/>`;
+    inner += `<text class="barval" x="${lf(padL + w + 6)}" y="${y + 15}">${r.minDelta.toFixed(3)}${pair}</text>`;
+  });
+  wrap.innerHTML =
+    `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Minimum pairwise Oklab distance per vision mode">${inner}</svg>`;
+  $('#lab-sep-note').textContent =
+    `Smallest Oklab distance between any two active swatches per vision, ` +
+    `with the closest pair indexes in parentheses${worst ? ', tightest under ' + worst.v : ''}.`;
+}
+
+function wireLab() {
+  $('#lab-comparator').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-lab-apply]');
+    if (b) setHarmony(b.dataset.labApply);
+  });
+  $('#btn-lab-json').addEventListener('click', () =>
+    labBundle && tokenDownload('audit json', labBundle.json, `paletteforge-${slug()}-audit.json`, 'application/json'));
+  $('#btn-lab-csv').addEventListener('click', () =>
+    labBundle && tokenDownload('audit csv', labBundle.csv, `paletteforge-${slug()}-audit.csv`, 'text/csv'));
+  $('#btn-lab-md').addEventListener('click', () =>
+    labBundle && tokenDownload('audit markdown', labBundle.markdown, `paletteforge-${slug()}-audit.md`, 'text/markdown'));
+  $('#btn-lab-share').addEventListener('click', () => copyShareLink($('#btn-lab-share')));
+  $('#btn-lab-verify').addEventListener('click', () => {
+    if (!labBundle) return;
+    const d = labMod.tamperAuditDemo(labBundle.payload);
+    const ok = d.originalVerified && d.tamperDetected;
+    const note = $('#lab-export-note');
+    note.textContent = ok
+      ? `digest verified live, then a copy with ${d.field} flipped was rejected`
+      : 'verification did not hold, inspect the payload';
+    note.className = ok ? 'note ok' : 'note bad';
+    announce(ok ? 'audit digest verified, tampered copy rejected' : 'audit verification failed');
+  });
 }
 
 const RADIO_GROUPS = [
@@ -553,8 +765,7 @@ $('#btn-extract').addEventListener('click', () => {
   }
 });
 
-$('#btn-copy').addEventListener('click', async () => {
-  const btn = $('#btn-copy');
+async function copyShareLink(btn) {
   const url = location.href;
   const flash = () => {
     btn.textContent = 'Link copied';
@@ -577,7 +788,9 @@ $('#btn-copy').addEventListener('click', async () => {
     if (document.execCommand('copy')) flash();
   } catch { /* leave the label unchanged */ }
   ta.remove();
-});
+}
+
+$('#btn-copy').addEventListener('click', () => copyShareLink($('#btn-copy')));
 
 const dz = $('#drop-zone');
 const fileInput = $('#file-input');
@@ -714,8 +927,8 @@ function download(blob, name) {
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
-$('#btn-tests').addEventListener('click', () => {
-  const results = runSelfTests();
+$('#btn-tests').addEventListener('click', async () => {
+  const results = await runSelfTests();
   const pass = results.filter((r) => r.pass).length;
   $('#test-block').hidden = false;
   const summary = $('#test-summary');

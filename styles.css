@@ -460,6 +460,108 @@ input[type="color"]:focus-visible { outline: 2px solid var(--accent); outline-of
 .matrix td .cell.aal { box-shadow: inset 0 -3px 0 var(--accent); }
 .matrix td .cell.fail { box-shadow: inset 0 -3px 0 var(--fail); }
 
+/* ---------- calibration lab ---------- */
+
+.lab {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  border-top: 1px solid var(--hairline);
+  padding-top: 22px;
+}
+
+.lab[hidden] { display: none; }
+
+.lab-charts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 26px;
+  align-items: start;
+}
+
+.lab-chart { min-width: 0; }
+
+.lab-table { overflow-x: auto; }
+.lab-table table { border-collapse: collapse; width: 100%; }
+.lab-table th, .lab-table td { padding: 0; text-align: left; }
+.lab-table thead th {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--ink-faint);
+  letter-spacing: .06em;
+  padding: 4px 9px 7px;
+  border-bottom: 1px solid var(--hairline);
+  white-space: nowrap;
+}
+.lab-table tbody th {
+  font-weight: 500;
+  font-size: 12.5px;
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--paper-2);
+  white-space: nowrap;
+}
+.lab-table tbody td {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft);
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--paper-2);
+  border-left: 1px solid var(--paper-2);
+  vertical-align: top;
+}
+.lab-table tbody tr:last-child th,
+.lab-table tbody tr:last-child td { border-bottom: 0; }
+.lab-table tbody tr.current th,
+.lab-table tbody tr.current td { background: var(--paper-2); }
+
+.lab-cell { display: flex; flex-direction: column; gap: 1px; white-space: nowrap; }
+.lab-cell .dim { color: var(--ink-faint); }
+.lab-cell.worst { box-shadow: inset 3px 0 0 var(--accent); padding-left: 6px; }
+
+.lab-apply {
+  font-size: 10.5px;
+  min-height: 0;
+  padding: 3px 8px;
+  margin-left: 8px;
+  border-color: var(--hairline);
+  color: var(--ink-soft);
+}
+.lab-apply:hover { color: var(--ink); border-color: var(--ink); }
+
+.lab-slice svg, .lab-sep svg { display: block; width: 100%; height: auto; }
+.lab-slice .hull { stroke-width: 1.5; }
+.lab-slice .axisline, .lab-sep .axisline { stroke: var(--hairline); stroke-width: 1; }
+.lab-slice .tick, .lab-sep .tick { fill: var(--ink-faint); font-family: var(--mono); font-size: 9.5px; }
+.lab-slice .guide { stroke: var(--hairline); stroke-dasharray: 3 3; stroke-width: 1; }
+.lab-slice .cuspring { fill: none; stroke: var(--accent); stroke-width: 1.6; }
+.lab-slice .swatch-dot { stroke: var(--mat); stroke-width: 1.5; }
+.lab-slice .swatch-dot:focus { outline: none; stroke: var(--accent); stroke-width: 3; }
+.lab-slice .clip-target { fill: none; stroke: var(--accent-ink); stroke-width: 1.6; }
+.lab-slice .clip-vec { stroke: var(--accent-ink); stroke-width: 1.4; stroke-dasharray: 4 3; }
+.lab-slice .clip-land { stroke: var(--mat); stroke-width: 1.5; }
+.lab-slice .clipgroup:focus { outline: none; }
+.lab-slice .clipgroup:focus .clip-target { stroke: var(--accent); stroke-width: 2.5; }
+.lab-sep .bar { fill: var(--accent); opacity: .78; }
+.lab-sep .bar.dim { fill: var(--hairline); }
+.lab-sep .bar.worst { fill: var(--fail); opacity: 1; }
+.lab-sep .barlab { fill: var(--ink-soft); font-family: var(--mono); font-size: 10px; }
+.lab-sep .barval { fill: var(--ink-faint); font-family: var(--mono); font-size: 10px; }
+
+.digest-line { display: flex; align-items: baseline; gap: 10px; margin: 0 0 10px; }
+.digest-tag {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .12em;
+  color: var(--mat);
+  background: var(--ink-soft);
+  padding: 2px 7px;
+  border-radius: 2px;
+}
+#lab-digest { font-family: var(--mono); font-size: 11px; color: var(--ink-soft); word-break: break-all; }
+
 /* ---------- self-test drawer ---------- */
 
 .test-list {
@@ -538,6 +640,7 @@ input[type="color"]:focus-visible { outline: 2px solid var(--accent); outline-of
   .palette-col { display: flex; }
   .frame { padding: 14px; }
   .foot { padding: 12px 20px 14px; flex-wrap: wrap; }
+  .lab-charts { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (max-width: 560px) {

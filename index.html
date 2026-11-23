@@ -134,6 +134,38 @@
       <ul id="test-list" class="test-list"></ul>
     </div>
   </aside>
+
+  <section class="lab" id="lab" aria-label="Gamut cusp and CVD calibration lab" hidden>
+    <div class="block">
+      <h2>Harmony and vision comparator</h2>
+      <div id="lab-comparator" class="lab-table"></div>
+      <p class="note" id="lab-comparator-note"></p>
+    </div>
+    <div class="block lab-charts">
+      <div class="lab-chart">
+        <h2>OKLCH gamut slice</h2>
+        <div id="lab-slice" class="lab-slice"></div>
+        <p class="note" id="lab-slice-note"></p>
+      </div>
+      <div class="lab-chart">
+        <h2>CVD separability</h2>
+        <div id="lab-sep" class="lab-sep"></div>
+        <p class="note" id="lab-sep-note"></p>
+      </div>
+    </div>
+    <div class="block">
+      <h2>Audited export</h2>
+      <p class="digest-line"><span class="digest-tag">sha256</span><code id="lab-digest"></code></p>
+      <div class="btn-grid cols3" id="lab-export-grid">
+        <button type="button" id="btn-lab-json">Audit JSON</button>
+        <button type="button" id="btn-lab-csv">Audit CSV</button>
+        <button type="button" id="btn-lab-md">Audit Markdown</button>
+        <button type="button" id="btn-lab-share">Copy share link</button>
+        <button type="button" id="btn-lab-verify">Verify and tamper demo</button>
+      </div>
+      <p class="note" id="lab-export-note"></p>
+    </div>
+  </section>
 </main>
 
 <footer class="foot">

@@ -14,6 +14,7 @@ import {
   contrastRatio,
   contrastBadge,
   simulateCvd,
+  simulateCvdHex,
   extractPaletteFromPixels,
   generateHarmony,
 } from './color-science.mjs';
@@ -37,9 +38,18 @@ import {
 
 const close = (a, b, eps) => Math.abs(a - b) <= eps;
 
-export function runSelfTests() {
+export async function runSelfTests() {
   const results = [];
   const check = (name, pass, detail) => results.push({ name, pass: !!pass, detail: String(detail ?? '') });
+
+  // The gamut lab is an optional module: if it fails to load, the lab
+  // section stays hidden and the rest of the suite still reports.
+  let lab = null;
+  try {
+    lab = await import('./gamut-lab.mjs');
+  } catch {
+    lab = null;
+  }
 
   // Golden values: FNV-1a and mulberry32 reference outputs.
   check('fnv1a("paletteforge") golden', fnv1a('paletteforge') === 0x03e59967, fnv1a('paletteforge').toString(16));
@@ -123,6 +133,61 @@ export function runSelfTests() {
   check('css tokens declare swatch vars', exportCssTokens(pal).includes('--pf-swatch-1'), 'vars');
   check('tailwind config emits module exports', exportTailwindConfig(pal).includes('module.exports'), 'cjs');
   check('figma tokens carry $type color', JSON.parse(exportFigmaTokens(pal)).paletteforge.color['1'].$type === 'color', 'color');
+
+  if (!lab) {
+    check('gamut lab module present', false, 'module missing, lab hidden');
+  } else {
+    const {
+      sha256Hex, canonicalJson, gamutBoundaryC, gamutSlice, projectToSlice,
+      deltaEOKHex, compareHarmonyGrid, csvCell, buildAuditPayload,
+      auditBundle, verifyAudit, tamperAuditDemo,
+    } = lab;
+
+    // Gamut lab: SHA-256 known-answer tests (FIPS 180-4 vectors).
+    check('sha256("") golden', sha256Hex('') === 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855', sha256Hex('').slice(0, 16));
+    check('sha256("abc") golden', sha256Hex('abc') === 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad', sha256Hex('abc').slice(0, 16));
+    check('sha256 448-bit message golden', sha256Hex('abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq') === '248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1', '448-bit');
+    check('sha256 UTF-8 aware', sha256Hex('caf\u00e9') !== sha256Hex('caf?') && sha256Hex('caf\u00e9').length === 64, 'utf8');
+
+    // Gamut cusp slice: the boundary closes exactly on the achromatic axis.
+    check('gamut boundary ends at zero chroma', [0, 28, 90, 140, 200, 260, 330].every((H) => gamutBoundaryC(0, H) === 0 && gamutBoundaryC(1, H) === 0), 'endpoints');
+    const slice = gamutSlice(28);
+    check('cusp is positive and inside gamut', slice.cusp.C > 0.05 && isInSrgbGamut(oklchToSrgb(slice.cusp.L, slice.cusp.C, 28), 0), `L ${slice.cusp.L} C ${slice.cusp.C.toFixed(4)}`);
+    check('slice has closed hull', slice.points[0].C === 0 && slice.points[slice.points.length - 1].C === 0, `${slice.points.length} pts`);
+    const oog = projectToSlice(0.72, 0.4, 28);
+    check('out-of-gamut target clips to boundary', !oog.inGamut && Math.abs(oog.mapped.C - gamutBoundaryC(0.72, 28)) < 1e-4, `C ${oog.mapped.C.toFixed(4)}`);
+
+    // The unrounded ratio is the verdict: 4.4996653 displays as 4.5 yet fails AA.
+    const nearAA = contrastRatio(hexToRgb('#9f6c33'), hexToRgb('#ffffff'));
+    check('unrounded 4.4998 fails AA', nearAA < 4.5 && nearAA.toFixed(2) === '4.50' && contrastBadge(nearAA) === 'AA Large', nearAA.toFixed(5));
+
+    // Delta-E_OK symmetry under every vision simulation.
+    check('Oklab distance is symmetric under CVD', ['none', 'protanopia', 'deuteranopia', 'tritanopia'].every((v) => {
+      const ha = v === 'none' ? '#c8451f' : simulateCvdHex('#c8451f', v);
+      const hb = v === 'none' ? '#e2a926' : simulateCvdHex('#e2a926', v);
+      return deltaEOKHex(ha, hb) === deltaEOKHex(hb, ha);
+    }), 'symmetric');
+
+    // Comparator grid shape and pass counts.
+    const grid = compareHarmonyGrid({ L: 0.62, C: 0.13, H: 28 });
+    check('comparator is 6 harmonies x 4 visions', grid.length === 6 && grid.every((r) => r.cells.length === 4), `${grid.length}x${grid[0].cells.length}`);
+    check('every cell counts 10 unordered pairs', grid.every((r) => r.cells.every((c) => c.pairs === 10 && c.aa <= 10 && c.minDelta >= 0)), 'pairs');
+
+    // CSV formula escaping.
+    check('csv escapes formula triggers', csvCell('=CMD()') === "'=CMD()" && csvCell('+1') === "'+1" && csvCell('-9') === "'-9" && csvCell('@x') === "'@x", 'escaped');
+    check('csv quotes separators and preserves plain text', csvCell('a,b') === '"a,b"' && csvCell('plain') === 'plain', 'quoted');
+
+    // Audited brief: one digest on every surface, tampering always detected.
+    const auditKey = { seed: 'first light', mode: 'flow', harmony: 'triadic', symmetry: 'p4m', cvd: 'none', theme: 'light', base: '#c8451f', palette: pal };
+    const bundle = auditBundle(auditKey);
+    check('audit payload verifies', verifyAudit(bundle.payload), bundle.digest.slice(0, 16));
+    check('one digest on json csv and markdown', bundle.json.includes(bundle.digest) && bundle.csv.includes('# sha256 ' + bundle.digest) && bundle.markdown.includes('sha256 ' + bundle.digest), 'parity');
+    check('audit bundle cached per state key', auditBundle(auditKey) === bundle, 'cache');
+    check('tamper demo detects mutation', tamperAuditDemo(bundle.payload).tamperDetected === true, 'detected');
+    check('canonical json is key-order stable', sha256Hex(canonicalJson({ b: 1, a: [3, 2] })) === sha256Hex(canonicalJson({ a: [3, 2], b: 1 })), 'stable');
+    const hostilePayload = buildAuditPayload({ base: 'garbage', palette: ['#zzz', 7, null], seed: { toString: () => '=CMD()' }, cvd: 'bogus' });
+    check('hostile audit input stays sane', hostilePayload.state.base === '#000000' && hostilePayload.palette.length === 5, 'sane');
+  }
 
   return results;
 }
