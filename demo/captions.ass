@@ -1,0 +1,28 @@
+[Script Info]
+Title: paletteforge demo captions
+ScriptType: v4.00+
+PlayResX: 1920
+PlayResY: 1080
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Cap,Helvetica,42,&H00FFFFFF,&H000019FF,&H88141414,&H00000000,-1,0,0,0,100,100,0,0,3,14,0,2,120,120,46,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.52,0:00:08.37,Cap,,0,0,0,,PaletteForge is a zero dependency color science and generative poster studio that runs entirely in one page.
+Dialogue: 0,0:00:08.54,0:00:17.30,Cap,,0,0,0,,Every conversion, harmony, simulation and export is computed locally and deterministically, with no network calls at all.
+Dialogue: 0,0:00:17.92,0:00:22.61,Cap,,0,0,0,,Colors move exactly between S R G B, linear S R G B, Oklab and O K L C H.
+Dialogue: 0,0:00:22.78,0:00:31.39,Cap,,0,0,0,,An out of gamut target clips by binary searching chroma at constant hue and lightness, so the clipped color keeps its hue.
+Dialogue: 0,0:00:32.01,0:00:39.94,Cap,,0,0,0,,Six geometric harmonies generate the palette, from complementary and triadic to a monochromatic tonal scale.
+Dialogue: 0,0:00:40.11,0:00:51.31,Cap,,0,0,0,,The whole palette scores itself in a W C A G contrast matrix judged on unrounded ratios, so a four point four nine nine can never masquerade as a four point five.
+Dialogue: 0,0:00:51.94,0:01:00.62,Cap,,0,0,0,,Four seeded composition modes render the poster: flow ribbons, wallpaper symmetry, bauhaus grid and moire superformula.
+Dialogue: 0,0:01:00.79,0:01:10.96,Cap,,0,0,0,,The same seed always yields a byte identical S V G, and the complete state lives in the U R L hash, so any poster can be shared and restored exactly.
+Dialogue: 0,0:01:11.58,0:01:23.38,Cap,,0,0,0,,The studio simulates protanopia, deuteranopia and tritanopia with the Machado two thousand nine matrices, applied to the swatches, the matrix and the poster itself.
+Dialogue: 0,0:01:23.55,0:01:35.32,Cap,,0,0,0,,A calibration lab grades all six harmonies under full vision and all three simulations, and draws the exact S R G B gamut silhouette in the O K L C H slice at the base hue.
+Dialogue: 0,0:01:35.94,0:01:43.47,Cap,,0,0,0,,Exports ship the palette as C S S custom properties, a Tailwind config and Figma ready D T C G design tokens.
+Dialogue: 0,0:01:43.64,0:01:56.44,Cap,,0,0,0,,One S H A 256 digest stamps the audit brief identically on the page, the J S O N, the C S V and the Markdown, and a tamper check proves a single flipped field breaks verification.
+Dialogue: 0,0:01:57.06,0:02:03.91,Cap,,0,0,0,,Seven hundred eleven Node tests pass with zero failures, re verified inside this recording run.
+Dialogue: 0,0:02:04.08,0:02:08.88,Cap,,0,0,0,,PaletteForge. Exact color, honest contrast, all in one static page.

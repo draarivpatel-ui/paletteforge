@@ -1,0 +1,7 @@
+PaletteForge - verification proof
+commit: f930a32 (captured during scripts/record-demo.mjs)
+
+$ node --test tests/
+  tests 711, pass 711, fail 0
+$ hark_honesty_and_defect_harness.py --audit <repo>
+  Audited 33 files in paletteforge: 0 violation(s).

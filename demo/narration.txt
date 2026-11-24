@@ -1,0 +1,20 @@
+PaletteForge is a zero dependency color science and generative poster studio that runs entirely in one page.
+Every conversion, harmony, simulation and export is computed locally and deterministically, with no network calls at all.
+
+Colors move exactly between S R G B, linear S R G B, Oklab and O K L C H.
+An out of gamut target clips by binary searching chroma at constant hue and lightness, so the clipped color keeps its hue.
+
+Six geometric harmonies generate the palette, from complementary and triadic to a monochromatic tonal scale.
+The whole palette scores itself in a W C A G contrast matrix judged on unrounded ratios, so a four point four nine nine can never masquerade as a four point five.
+
+Four seeded composition modes render the poster: flow ribbons, wallpaper symmetry, bauhaus grid and moire superformula.
+The same seed always yields a byte identical S V G, and the complete state lives in the U R L hash, so any poster can be shared and restored exactly.
+
+The studio simulates protanopia, deuteranopia and tritanopia with the Machado two thousand nine matrices, applied to the swatches, the matrix and the poster itself.
+A calibration lab grades all six harmonies under full vision and all three simulations, and draws the exact S R G B gamut silhouette in the O K L C H slice at the base hue.
+
+Exports ship the palette as C S S custom properties, a Tailwind config and Figma ready D T C G design tokens.
+One S H A 256 digest stamps the audit brief identically on the page, the J S O N, the C S V and the Markdown, and a tamper check proves a single flipped field breaks verification.
+
+Seven hundred eleven Node tests pass with zero failures, re verified inside this recording run.
+PaletteForge. Exact color, honest contrast, all in one static page.

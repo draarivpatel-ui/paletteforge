@@ -1,0 +1,112 @@
+{
+ "voice": "OmniVoice-bf16 (Aariv voice clone)",
+ "seed": 1,
+ "sr": 24000,
+ "lead": 0.6,
+ "gap_sent": 0.3,
+ "gap_para": 0.75,
+ "tail": 1,
+ "total": 129.833,
+ "wav_seconds": 129.833,
+ "words": 314,
+ "sentences": [
+  {
+   "para": 0,
+   "sent": 0,
+   "text": "PaletteForge is a zero dependency color science and generative poster studio that runs entirely in one page.",
+   "dur": 7.719,
+   "start": 0.6
+  },
+  {
+   "para": 0,
+   "sent": 1,
+   "text": "Every conversion, harmony, simulation and export is computed locally and deterministically, with no network calls at all.",
+   "dur": 8.634,
+   "start": 8.619
+  },
+  {
+   "para": 1,
+   "sent": 0,
+   "text": "Colors move exactly between S R G B, linear S R G B, Oklab and O K L C H.",
+   "dur": 4.56,
+   "start": 18.003
+  },
+  {
+   "para": 1,
+   "sent": 1,
+   "text": "An out of gamut target clips by binary searching chroma at constant hue and lightness, so the clipped color keeps its hue.",
+   "dur": 8.48,
+   "start": 22.863
+  },
+  {
+   "para": 2,
+   "sent": 0,
+   "text": "Six geometric harmonies generate the palette, from complementary and triadic to a monochromatic tonal scale.",
+   "dur": 7.795,
+   "start": 32.092
+  },
+  {
+   "para": 2,
+   "sent": 1,
+   "text": "The whole palette scores itself in a W C A G contrast matrix judged on unrounded ratios, so a four point four nine nine can never masquerade as a four point five.",
+   "dur": 11.078,
+   "start": 40.187
+  },
+  {
+   "para": 3,
+   "sent": 0,
+   "text": "Four seeded composition modes render the poster: flow ribbons, wallpaper symmetry, bauhaus grid and moire superformula.",
+   "dur": 8.559,
+   "start": 52.015
+  },
+  {
+   "para": 3,
+   "sent": 1,
+   "text": "The same seed always yields a byte identical S V G, and the complete state lives in the U R L hash, so any poster can be shared and restored exactly.",
+   "dur": 10.034,
+   "start": 60.874
+  },
+  {
+   "para": 4,
+   "sent": 0,
+   "text": "The studio simulates protanopia, deuteranopia and tritanopia with the Machado two thousand nine matrices, applied to the swatches, the matrix and the poster itself.",
+   "dur": 11.675,
+   "start": 71.658
+  },
+  {
+   "para": 4,
+   "sent": 1,
+   "text": "A calibration lab grades all six harmonies under full vision and all three simulations, and draws the exact S R G B gamut silhouette in the O K L C H slice at the base hue.",
+   "dur": 11.638,
+   "start": 83.633
+  },
+  {
+   "para": 5,
+   "sent": 0,
+   "text": "Exports ship the palette as C S S custom properties, a Tailwind config and Figma ready D T C G design tokens.",
+   "dur": 7.396,
+   "start": 96.02
+  },
+  {
+   "para": 5,
+   "sent": 1,
+   "text": "One S H A 256 digest stamps the audit brief identically on the page, the J S O N, the C S V and the Markdown, and a tamper check proves a single flipped field breaks verification.",
+   "dur": 12.676,
+   "start": 103.717
+  },
+  {
+   "para": 6,
+   "sent": 0,
+   "text": "Seven hundred eleven Node tests pass with zero failures, re verified inside this recording run.",
+   "dur": 6.718,
+   "start": 117.142
+  },
+  {
+   "para": 6,
+   "sent": 1,
+   "text": "PaletteForge. Exact color, honest contrast, all in one static page.",
+   "dur": 4.673,
+   "start": 124.16
+  }
+ ]
+}
