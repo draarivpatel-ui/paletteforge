@@ -78,7 +78,7 @@ tools/verify.mjs        headless browser verification script
 
 ## Tests
 
-The suite currently reports 711 passing checks with zero failures:
+The suite currently reports 713 passing checks with zero failures:
 
 ```
 npm test

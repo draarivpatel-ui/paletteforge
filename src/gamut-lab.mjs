@@ -420,8 +420,9 @@ export function exportAuditJson(stamped) {
 // leading whitespace earns a single-quote prefix so spreadsheet apps never
 // evaluate the cell; separators and quotes then force double quoting.
 export function csvCell(v) {
+  const numeric = typeof v === 'number' && Number.isFinite(v);
   let s = v === null || v === undefined ? '' : String(v);
-  if (/^[=+\-@\t\r\x0b]/.test(s) || /^\s/.test(s) || s.startsWith('|')) s = "'" + s;
+  if (!numeric && (/^[\s\p{Cf}\p{Cc}]*[=+\-@\t\r\x0b]/u.test(s) || /^\s/u.test(s) || s.startsWith('|'))) s = "'" + s;
   if (/[",\n\r]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"';
   return s;
 }

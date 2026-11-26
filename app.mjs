@@ -200,7 +200,7 @@ function artworkTitle() {
   const words = state.seed.trim().split(/\s+/).filter(Boolean);
   if (!words.length) return 'Untitled study';
   const titled = words.map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-  return titled.length > 34 ? titled.slice(0, 33).trimEnd() + '…' : titled;
+  return Array.from(titled).length > 34 ? Array.from(titled).slice(0, 33).join('').trimEnd() + '…' : titled;
 }
 
 function renderPlacard() {

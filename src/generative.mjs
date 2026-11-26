@@ -516,8 +516,8 @@ function footerOps(meta, opts) {
   const y0 = POSTER_H - FOOTER_H;
   const ink = opts.footerInk || '#191613';
   const ops = [path([[0, y0], [POSTER_W, y0]], { stroke: ink, w: 2, cap: 'butt', alpha: 0.85 })];
-  const seedTxt = meta.seed.length > 34 ? meta.seed.slice(0, 33) + '...' : meta.seed;
-  const oklchLine = (opts.oklchLine || '').slice(0, 64);
+  const seedTxt = Array.from(meta.seed).length > 34 ? Array.from(meta.seed).slice(0, 33).join('') + '...' : meta.seed;
+  const oklchLine = Array.from(opts.oklchLine || '').slice(0, 64).join('');
   const passes = meta.contrastPasses == null ? 'n/a' : String(meta.contrastPasses);
   ops.push(text(56, y0 + 46, `SEED ${seedTxt}`, { fill: ink, size: 26 }));
   ops.push(
@@ -649,7 +649,7 @@ export const STATE_KEYS = ['seed', 'mode', 'harmony', 'symmetry', 'cvd', 'theme'
 
 export function sanitizeSeed(s) {
   // Strip control characters and cap length; keep any printable text.
-  const clean = String(s ?? '').replace(/[\x00-\x1f\x7f]/g, '').slice(0, 64);
+  const clean = Array.from(String(s ?? '').replace(/[\x00-\x1f\x7f]/g, '')).slice(0, 64).join('');
   return clean;
 }
 

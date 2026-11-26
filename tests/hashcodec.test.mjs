@@ -106,3 +106,14 @@ test('encodeState output shape', async (t) => {
     assert.equal(sanitizeSeed('  kept  '), '  kept  ');
   });
 });
+
+
+test('batch4 seed cap counts code points and never splits emoji', () => {
+  const seed = 'x'.repeat(63) + '\u{1f600}' + 'tail';
+  const clean = sanitizeSeed(seed);
+  assert.equal(Array.from(clean).length, 64);
+  assert.ok(clean.endsWith('\u{1f600}') || !clean.includes('\u{1f600}'));
+  assert.equal(clean.includes('\uFFFD'), false);
+  const rt = decodeState(encodeState({ ...DEF, seed }), DEF);
+  assert.equal(rt.seed, clean);
+});
