@@ -84,7 +84,7 @@ The suite currently reports 714 passing checks with zero failures:
 npm test
 ```
 
-which is `node --test tests/`. The suite covers round-trip accuracy, gamut-bisection invariants,
+which is `node --test`. The suite covers round-trip accuracy, gamut-bisection invariants,
 WCAG golden values, CVD matrix algebra and monotonicity, median-cut edges, NaN hardening, PRNG
 goldens, byte-identical SVG output, SVG validity and escaping, URL hash tampering, OKLCH input
 parsing, proof-report structure, token-export determinism, and static hygiene on the shipped

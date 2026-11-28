@@ -89,7 +89,7 @@ test('README states the exact verified test count', async (t) => {
     // The worker marker makes a nested `node --test` skip silently; clear it.
     delete env.NODE_TEST_CONTEXT;
     delete env.NODE_TEST_WORKER_ID;
-    const out = execFileSync(process.execPath, ['--test', 'tests/', '--test-reporter', 'tap'], {
+    const out = execFileSync(process.execPath, ['--test', '--test-reporter', 'tap'], {
       cwd: ROOT,
       env,
       encoding: 'utf8',
